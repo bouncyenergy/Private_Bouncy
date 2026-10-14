@@ -1,0 +1,49 @@
+name: Update data and build viewer
+
+on:
+  schedule:
+    - cron: "0 5 * * 1"          # varje måndag morgon, så sparas Actions-minuter i det privata repot
+  workflow_dispatch:              # kan startas manuellt under Actions
+  push:
+    branches: [main]
+    paths:
+      - "update_data.py"
+      - "build_viewer.py"
+      - "viewer_template.html"
+      - ".github/workflows/update.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: arbitrage
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Fetch ENTSO-E data and calculate
+        env:
+          ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}
+        run: python update_data.py
+
+      - name: Build the viewer page
+        run: python build_viewer.py
+
+      - name: Save cache, data and viewer in the repo
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@users.noreply.github.com"
+          git add data docs/data viewer
+          git diff --cached --quiet || (git commit -m "Update $(date -u +%F)" && git push)

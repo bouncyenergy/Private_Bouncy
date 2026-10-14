@@ -1,0 +1,633 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arbitrage depth – Bouncy Energy (private)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.plot.ly/plotly-basic-2.35.2.min.js" charset="utf-8"></script>
+<style>
+  /* Byt färger och typsnitt här så följer hela dashboarden med. */
+  :root {
+    --ink: #13242d;
+    --muted: #5d6e76;
+    --paper: #f6f8f7;
+    --card: #ffffff;
+    --line: #d8e0de;
+    --wind: #1b7f9e;
+    --solar: #e29a0e;
+    --accent: #13242d;
+    --warn-bg: #fff4d6;
+    --font-head: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+    --font-body: "Inter", "Segoe UI", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font: 400 15px/1.5 var(--font-body);
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 24px 20px 40px; }
+  h1 {
+    font: 700 clamp(24px, 4vw, 34px)/1.1 var(--font-head);
+    letter-spacing: -0.01em;
+    margin: 0 0 6px;
+  }
+  .lede { color: var(--muted); margin: 0 0 22px; max-width: 62ch; }
+  .banner {
+    background: var(--warn-bg);
+    border-left: 4px solid var(--solar);
+    padding: 10px 14px;
+    margin: 0 0 18px;
+    border-radius: 4px;
+  }
+  .banner[hidden] { display: none; }
+
+  /* Val av elområde */
+  .zones { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 18px; }
+  .zones button {
+    font: 500 14px var(--font-body);
+    color: var(--ink);
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 6px 14px;
+    cursor: pointer;
+  }
+  .zones button[aria-pressed="true"] { background: var(--ink); color: #fff; border-color: var(--ink); }
+
+  /* Nyckeltal */
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin: 0 0 22px; }
+  .kpi { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+  .kpi dt { color: var(--muted); font-size: 13px; margin: 0 0 2px; }
+  .kpi dd { margin: 0; font: 700 28px/1.1 var(--font-head); }
+  .kpi.wind { border-top: 3px solid var(--wind); }
+  .kpi.solar { border-top: 3px solid var(--solar); }
+  .kpi.spread { border-top: 3px solid var(--ink); }
+  .kpi small { font: 400 13px var(--font-body); color: var(--muted); }
+
+  /* Flikar */
+  .tabs { display: flex; gap: 22px; border-bottom: 1px solid var(--line); margin-bottom: 16px; overflow-x: auto; }
+  .tabs button {
+    font: 600 15px var(--font-body);
+    background: none; border: 0; border-bottom: 3px solid transparent;
+    color: var(--muted); padding: 8px 0 9px; cursor: pointer; white-space: nowrap;
+  }
+  .tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); }
+
+  /* Reglage */
+  .controls { display: flex; flex-wrap: wrap; gap: 14px 24px; margin-bottom: 8px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--card); }
+  .seg button {
+    font: 500 14px var(--font-body); color: var(--ink);
+    background: none; border: 0; padding: 6px 12px; cursor: pointer;
+    border-right: 1px solid var(--line);
+  }
+  .seg button:last-child { border-right: 0; }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: #fff; }
+
+  button:focus-visible { outline: 3px solid #7fc4dc; outline-offset: 2px; }
+
+  .sel { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); }
+  .sel select {
+    font: 500 14px var(--font-body); color: var(--ink); background: var(--card);
+    border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; max-width: 100%;
+  }
+  .controls.inner { margin: 6px 0 4px; }
+  .axis-note { color: var(--muted); font-size: 13px; margin: -8px 0 18px; }
+
+  [hidden] { display: none !important; }
+  html { scroll-padding-top: 96px; }
+
+  /* Panel för elområden som följer med vid scroll (Duck curve) */
+  .zonebar {
+    position: sticky; top: 0; z-index: 20;
+    background: var(--paper); border-bottom: 1px solid var(--line);
+    padding: 8px 0 10px; margin: 0 0 12px;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px;
+  }
+  .zonebar-label { font: 600 13px var(--font-body); color: var(--muted); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    font: 500 13px var(--font-body); color: var(--ink); background: var(--card);
+    border: 1px solid var(--line); border-radius: 999px; padding: 4px 11px 4px 8px;
+    cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+  }
+  .chip .dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid transparent; }
+  .chip[aria-pressed="true"] { border-color: var(--ink); }
+  .chip[aria-pressed="false"] { color: var(--muted); }
+  .quick { display: flex; gap: 2px; }
+  .quick button { font: 500 12.5px var(--font-body); background: none; border: 0; color: var(--muted); text-decoration: underline; cursor: pointer; padding: 4px 6px; }
+
+  .data-table-wrap { overflow-x: auto; }
+  .data-table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 13px; }
+  .data-table th, .data-table td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+  .data-table th:nth-child(-n+2), .data-table td:nth-child(-n+2) { text-align: left; }
+  .data-table thead th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  .data-table tr.first td { border-top: 2px solid var(--line); }
+  .data-table td.pos { color: #11704a; font-weight: 600; }
+
+  .slider-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 8px 0 6px; font-size: 14px; }
+  .slider-row label { font-weight: 600; }
+  .slider-row input[type="range"] { flex: 1 1 220px; max-width: 420px; accent-color: var(--ink); }
+  .slider-row output { font: 700 15px var(--font-head); min-width: 130px; }
+
+  .ov-lead { font-size: 15px; margin: 0 0 14px; max-width: 70ch; color: var(--ink); }
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; margin: 0 0 18px; }
+  .kpi-card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px 10px; }
+  .kpi-card h3 { font: 700 18px/1.2 var(--font-head); margin: 0 0 2px; }
+  .kpi-card .kpi-def { color: var(--muted); font-size: 12.5px; margin: 0 0 8px; }
+  .kpi-card .kpi-summary { font: 600 13px var(--font-body); margin: 0 0 8px; padding: 3px 9px; background: var(--paper); border-radius: 6px; display: inline-block; }
+  .kpi-rows { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .kpi-rows td { padding: 6px 0; border-top: 1px solid var(--line); }
+  .kpi-rows td.z { font-weight: 600; width: 46px; }
+  .kpi-rows td.v { text-align: right; font: 700 15px var(--font-head); padding-right: 10px; white-space: nowrap; }
+  .kpi-rows td.d { text-align: right; white-space: nowrap; width: 104px; color: var(--muted); font-size: 13px; }
+  .arrow { font-size: 12px; margin-right: 4px; }
+  .arrow.up { color: var(--wind); }
+  .arrow.down { color: #b87500; }
+  .arrow.flat { color: var(--muted); }
+  .ov-charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-bottom: 8px; }
+  .ov-charts .chart-block { margin-bottom: 0; }
+  .ov-charts .chart { height: 300px; }
+  @media (max-width: 820px) { .ov-charts { grid-template-columns: 1fr; } }
+
+  /* Diagram */
+  .panel[hidden] { display: none; }
+  .chart-block { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px 14px 6px; margin-bottom: 16px; }
+  .chart-block h2 { font: 700 17px/1.2 var(--font-head); margin: 0 0 2px; }
+  .chart-block p.sub { color: var(--muted); font-size: 13px; margin: 0 0 4px; }
+  .chart { width: 100%; height: 340px; }
+  .note { color: var(--muted); font-size: 13px; margin: 4px 0 10px; }
+  .note.alert { color: #8a5a00; }
+
+  details { margin-top: 8px; color: var(--muted); font-size: 14px; }
+  details summary { cursor: pointer; color: var(--ink); font-weight: 600; }
+  details p { max-width: 75ch; }
+  footer { margin-top: 22px; color: var(--muted); font-size: 13px; }
+  footer a { color: inherit; }
+
+
+  /* Definitioner och noter */
+  .defs { margin-top: 30px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--ink); }
+  .defs h2 { font: 700 20px/1.2 var(--font-head); margin: 0 0 12px; }
+  .defs dl { display: grid; grid-template-columns: minmax(130px, 200px) 1fr; gap: 8px 18px; margin: 0 0 18px; font-size: 14px; }
+  .defs dt { font-weight: 600; }
+  .defs dd { margin: 0; color: var(--muted); max-width: 70ch; }
+  .defs ol.notes { padding-left: 20px; margin: 0 0 12px; font-size: 13px; color: var(--muted); max-width: 80ch; }
+  .defs ol.notes li { margin-bottom: 8px; }
+  .defs ol.notes li:target { background: var(--warn-bg); }
+  .defs .disclaimer { font-size: 12.5px; color: var(--muted); max-width: 80ch; }
+  sup a { color: var(--muted); text-decoration: none; font-weight: 600; }
+  sup a:hover { text-decoration: underline; }
+  @media (max-width: 560px) { .defs dl { grid-template-columns: 1fr; gap: 0; } .defs dt { margin-top: 10px; } }
+
+  @media (max-width: 560px) {
+    .chart { height: 300px; }
+    .kpi dd { font-size: 24px; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Arbitrage depth</h1>
+  <p class="lede">Working page: how many batteries can the day-ahead arbitrage market take? Model with price impact estimated from ENTSO-E data. Private project, not published.</p>
+
+  <div id="demo-banner" class="banner" hidden>You are viewing demo data (synthetic values). Real values appear after the first run against ENTSO-E.</div>
+  <div id="error" class="banner" hidden></div>
+
+  <div class="zonebar" id="zonebar" role="group" aria-label="Select bidding zones">
+      <span class="zonebar-label">Bidding zones</span>
+      <div class="chips" id="zone-chips"></div>
+      <div class="quick" id="zonebar-quick">
+        <button data-quick="all">All</button>
+        <button data-quick="se">SE1–4</button>
+        <button data-quick="none">None</button>
+      </div>
+    </div>
+
+  
+  <section class="panel" id="panel-depth">
+    <p class="note alert" id="note-depth"></p>
+    <div class="chart-block">
+      <h2>How many batteries can the arbitrage market take?</h2>
+      <p class="sub">Model of day-ahead arbitrage as more batteries enter. The fleet charges and discharges in the day's cheapest and most expensive hours, and that moves the price itself. At what fleet size does revenue per MW fall, and how much does the spread shrink? It depends on how sensitive the price is. That is estimated from historical load, wind, solar and price (see further down), or you can set it yourself.<sup><a href="#n12">12</a>, <a href="#n13">13</a></sup></p>
+      <div class="controls inner">
+        <div class="seg" role="group" aria-label="Battery duration" id="seg-depthdur">
+          <button data-ddur="1h" aria-pressed="false">1 h</button>
+          <button data-ddur="2h" aria-pressed="true">2 h</button>
+          <button data-ddur="4h" aria-pressed="false">4 h</button>
+        </div>
+        <div class="seg" role="group" aria-label="Fleet size on the x-axis" id="seg-depthmax">
+          <button data-dmax="5" aria-pressed="false">0–5 GW</button>
+          <button data-dmax="10" aria-pressed="true">0–10 GW</button>
+          <button data-dmax="20" aria-pressed="false">0–20 GW</button>
+        </div>
+      </div>
+      <div class="controls inner">
+        <div class="seg" role="group" aria-label="Source of price impact" id="seg-depthmode">
+          <button data-dmode="est" aria-pressed="true">Estimated from data</button>
+          <button data-dmode="manual" aria-pressed="false">Manual</button>
+        </div>
+      </div>
+      <div class="slider-row">
+        <label for="rng-depth">Price impact</label>
+        <input type="range" id="rng-depth" min="0.5" max="60" step="0.5" value="15" aria-describedby="depth-help">
+        <output id="depth-s-label"></output>
+        <div class="seg" role="group" aria-label="Presets" id="seg-depthpre">
+          <button data-dpre="5" id="pre-low">Lowest</button>
+          <button data-dpre="15" id="pre-mid">Median</button>
+          <button data-dpre="40" id="pre-high">Highest</button>
+        </div>
+      </div>
+      <p class="note" id="depth-help"></p>
+      <p class="note alert" id="depth-est-note"></p>
+    </div>
+
+    <div class="chart-block">
+      <h2>Revenue per MW and year, by fleet size</h2>
+      <p class="sub">Thousand euro per installed MW and year from day-ahead arbitrage. The diamond marks where revenue has halved compared with the first MW.</p>
+      <div class="chart" id="chart-depth-rev"></div>
+    </div>
+
+    <div class="chart-block">
+      <h2>Daily spread after the batteries</h2>
+      <p class="sub">Average difference between the day's highest and lowest hourly price in euro per megawatt-hour, once the fleet has done its job.</p>
+      <div class="chart" id="chart-depth-spread"></div>
+    </div>
+
+    <div class="chart-block">
+      <h2>Saturation points</h2>
+      <p class="sub">Fleet size (in GW) where revenue per MW has fallen to 75, 50 and 25 % of the first MW's revenue, at the chosen price impact.</p>
+      <div class="data-table-wrap" id="depth-table"></div>
+      <p class="note" id="note-depth-ref"></p>
+    </div>
+
+    <div class="chart-block">
+      <h2>Empirical basis: how much does the price move per GW?</h2>
+      <p class="sub">The estimate compares the hourly price with residual load (consumption minus wind and solar) over the last 24 months, accounting for month and hour of day. Wind and weather make residual load vary on its own, and the price follows. That is the same thing a battery does when it charges or discharges.<sup><a href="#n14">14</a>, <a href="#n15">15</a></sup></p>
+      <div class="data-table-wrap" id="slope-table"></div>
+      <p class="note" id="note-slope"></p>
+    </div>
+
+    <div class="chart-block">
+      <h2>The relationship between price and residual load</h2>
+      <p class="sub">Average price deviation (euro per MWh) for twenty equally sized groups of hours sorted by residual load (GW, deviation from normal for the month and time of day). The dots show whether the relationship is straight, and the dashed line is the estimated slope.</p>
+      <div class="chart" id="chart-slope-bins"></div>
+    </div>
+
+    <div class="chart-block">
+      <h2>Price impact over the day</h2>
+      <p class="sub">The same estimate split by time of day, with 95 % intervals. Batteries usually charge at night and in the middle of the day and discharge in the evening.</p>
+      <div class="chart" id="chart-slope-dayparts"></div>
+    </div>
+  </section>
+
+  <section class="defs" id="definitioner">
+    <h2>Definitions and notes</h2>
+    <dl>
+      <dt>Day-ahead price</dt>
+      <dd>The power exchange's price for the next day, set the day before, per bidding zone and in euro per megawatt-hour (EUR/MWh). It is not the end-customer price, and it includes neither taxes, grid fees nor the retailer's margin. Intraday and balancing prices are not included.</dd>
+
+      <dt>Bidding zone</dt>
+      <dd>Sweden is divided into four (SE1–SE4). Finland, Denmark (DK1 and DK2) and Germany (here DE-LU, together with Luxembourg) are shown for comparison.</dd>
+
+      <dt>Arbitrage depth</dt>
+      <dd>How large a battery fleet the day-ahead market can absorb before arbitrage stops paying. The saturation point is the fleet size at which revenue per MW has fallen to a given share of the first MW's revenue.</dd>
+
+      <dt>Price impact</dt>
+      <dd>How many euro per megawatt-hour the price moves when a 1 GW fleet charges (price rises) or discharges (price falls) at full power. It is the model's most important and most uncertain assumption.</dd>
+    </dl>
+    <ol class="notes">
+      <li id="n12"><strong>The arbitrage depth model.</strong> The fleet consists of identical batteries with power N and duration 1, 2 or 4 hours, 88 % round-trip efficiency, and charges only from the grid. The batteries are price takers with perfect foresight of the day's day-ahead prices, and are empty at the end of the day. The price in that hour is shifted linearly with the fleet's net flow (price impact in euro per MWh and GW). Because the batteries push the price up when they charge and down when they discharge, revenue per MW falls as the fleet grows. The calculation is based on hourly prices for every fourth day over the last 12 months, scaled up to a year.</li>
+      <li id="n13"><strong>Limitations.</strong> The result depends entirely on the price impact. The model has a single price level per zone and does not account for trade with neighbouring zones that dilutes the effect, for supply and demand changing over time, or for batteries also selling in intraday and ancillary service markets. It does not include grid fees, operations, degradation or investment costs. It shows an upper limit for what day-ahead arbitrage yields, and not what an individual installation will earn.</li>
+      <li id="n14"><strong>How price impact is estimated.</strong> For each zone a regression of hourly price on residual load (consumption minus wind and solar, in GW) is run over the last 24 months, with fixed effects for month (which captures fuel prices and hydrology) and for hour of day split into weekdays and weekends. Prices are capped at the 1st–99th percentile so that single spikes do not dominate. Standard errors are cluster-robust by week. Because weather co-varies between zones and the zones are priced together, four variants are run: own residual load only, with Germany as a control, with all other zones as controls (the main estimate, including the five Norwegian zones), and the same on only the latest 12 months. The bands in the charts span the three controlled variants, and the variant without controls is shown only for comparison because it comes out too high.</li>
+      <li id="n15"><strong>What the estimate does not show.</strong> It measures how the price has moved given the variations in residual load that have actually occurred, often a few hundred MW up to about a GW in a Swedish zone. A battery fleet of several GW lies outside that range, and the line is then an extrapolation. When the batteries fill up the interconnectors to neighbouring zones, the zones decouple and the price becomes more sensitive, so real saturation may come faster than a straight line suggests. The relationship is also affected by things that are not included, for example flows, nuclear outages and hydrology.</li>
+    </ol>
+    <p class="disclaimer">Working page for the arbitrage depth model. Not for publication. The model is a scenario tool built on assumptions, and does not show what an individual installation will earn.</p>
+  </section>
+
+  <footer>Source: ENTSO-E Transparency Platform. Last updated: <span id="updated">–</span>. Bouncy Energy.</footer>
+</div>
+<script>window.EMBED = /*EMBED_JSON*/null;</script>
+<script>
+
+(function () {
+  'use strict';
+
+  var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var state = { zone: 'SE3', tab: 'overview', range: 12, profile: 'all', dview: 'rolling', dn: 'rolling', selZones: ['SE1', 'SE2', 'SE3', 'SE4'], solZone: 'SE4', solMonth: null, solScn: '2h', depthDur: '2h', depthS: 15, depthMax: 10, depthMode: 'est' };
+  var DATA = null, RECENT = null;
+
+  var qs = new URLSearchParams(location.search);
+  if (qs.get('zone')) state.zone = qs.get('zone').toUpperCase();
+  if (['overview', 'duck', 'solar', 'depth', 'recent'].indexOf(qs.get('tab')) >= 0) state.tab = qs.get('tab');
+
+  function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+  function $(id) { return document.getElementById(id); }
+  function fmt(v, d) {
+    return v == null ? '–' : Number(v).toLocaleString('en-GB', { minimumFractionDigits: d || 0, maximumFractionDigits: d || 0 });
+  }
+  function label(m) { return MON[parseInt(m.slice(5, 7), 10) - 1] + ' ' + m.slice(2, 4); }
+  function tail(arr, n) { return n ? arr.slice(-n) : arr.slice(); }
+  function pct(arr) { return arr.map(function (v) { return v == null ? null : v * 100; }); }
+  function lastValue(arr) {
+    for (var i = arr.length - 1; i >= 0; i--) if (arr[i] != null) return arr[i];
+    return null;
+  }
+  function allNull(arr) { return arr.every(function (v) { return v == null; }); }
+
+  function layout(xs, extra) {
+    var step = Math.max(1, Math.ceil(xs.length / 12));
+    var base = {
+      margin: { l: 52, r: 14, t: 10, b: 44 },
+      paper_bgcolor: 'rgba(0,0,0,0)',
+      plot_bgcolor: 'rgba(0,0,0,0)',
+      font: { family: css('--font-body'), size: 12, color: css('--ink') },
+      hovermode: 'x unified',
+      legend: { orientation: 'h', x: 0, y: 1.14 },
+      xaxis: {
+        type: 'category',
+        tickmode: 'array',
+        tickvals: xs.filter(function (_, i) { return i % step === 0; }),
+        gridcolor: 'rgba(0,0,0,0)',
+        linecolor: css('--line'),
+        fixedrange: true
+      },
+      yaxis: { gridcolor: css('--line'), zeroline: false, fixedrange: true }
+    };
+    return Object.assign(base, extra || {});
+  }
+  var CONFIG = { displayModeBar: false, responsive: true };
+
+  /* ---------- Gemensam y-axel för alla områden ---------- */
+  function globalExtent(getter) {
+    var lo = Infinity, hi = -Infinity;
+    DATA.order.forEach(function (k) {
+      getter(DATA.zones[k]).forEach(function (v) {
+        if (v == null) return;
+        if (v < lo) lo = v;
+        if (v > hi) hi = v;
+      });
+    });
+    return lo === Infinity ? null : [lo, hi];
+  }
+  function niceRange(ext, forceZero, minHi) {
+    if (!ext) return null;
+    var lo = forceZero ? Math.min(0, ext[0]) : ext[0];
+    var hi = Math.max(ext[1], minHi == null ? -Infinity : minHi);
+    var span = Math.max(hi - lo, 1);
+    var step = span > 400 ? 100 : span > 200 ? 50 : span > 80 ? 20 : span > 40 ? 10 : 5;
+    lo = Math.floor(lo / step) * step;
+    hi = Math.ceil((hi + 0.03 * span) / step) * step;
+    if (hi <= lo) hi = lo + step;
+    return [lo, hi];
+  }
+  function yAxis(extra, range) {
+    var ax = { gridcolor: css('--line'), zeroline: false, fixedrange: true };
+    Object.assign(ax, extra || {});
+    if (range) { ax.range = range; ax.autorange = false; }
+    return ax;
+  }
+
+
+  var ZONE_COLORS = { SE1: '#1b4f72', SE2: '#2e86c1', SE3: '#16a085', SE4: '#7dcea0', FI: '#8e44ad', DK1: '#e67e22', DK2: '#f1c40f', DE: '#566573' };
+  function extentOf(lists) {
+    var lo = Infinity, hi = -Infinity;
+    lists.forEach(function (arr) { (arr || []).forEach(function (v) { if (v == null) return; if (v < lo) lo = v; if (v > hi) hi = v; }); });
+    return lo === Infinity ? null : [lo, hi];
+  }
+
+  /* Valda områden (panelen som följer med) */
+  function selectedZones() { return DATA.order.filter(function (k) { return state.selZones.indexOf(k) >= 0; }); }
+  function renderZoneChips() {
+    $('zone-chips').innerHTML = DATA.order.map(function (k) {
+      var on = state.selZones.indexOf(k) >= 0, c = ZONE_COLORS[k] || '#888';
+      return '<button class="chip" data-zone="' + k + '" aria-pressed="' + on + '" title="' + DATA.zones[k].name + '">' +
+             '<span class="dot" style="background:' + (on ? c : 'transparent') + ';border-color:' + c + '"></span>' + k + '</button>';
+    }).join('');
+  }
+
+  /* ---------- Flik: Arbitragedjup ---------- */
+  var DEPTH = null, SLOPE = null;
+  var DP_EN = { natt: 'Night', morgon: 'Morning', dag: 'Midday', 'kväll': 'Evening', night: 'Night', morning: 'Morning', day: 'Midday', evening: 'Evening' };
+
+  function interpK(xs, ys, x) {
+    if (x <= xs[0]) return ys[0];
+    for (var i = 1; i < xs.length; i++) {
+      if (x <= xs[i]) { var t = (x - xs[i - 1]) / (xs[i] - xs[i - 1]); return ys[i - 1] + t * (ys[i] - ys[i - 1]); }
+    }
+    return null;                                   // utanför det beräknade intervallet: rita inget
+  }
+  function depthCurve(zone, field, s, grid) {
+    var r = DEPTH.zones[zone].res[state.depthDur][field];
+    return grid.map(function (n) { return interpK(DEPTH.kappa, r, s * n); });
+  }
+  /* flottstorlek (GW) där intäkten per MW har fallit till andelen frac av första MW */
+  function saturationAt(zone, s, frac) {
+    var r = DEPTH.zones[zone].res[state.depthDur].rev, target = r[0] * frac;
+    if (!(r[0] > 0)) return null;
+    for (var i = 1; i < r.length; i++) {
+      if (r[i] <= target) {
+        var t = (r[i - 1] - target) / (r[i - 1] - r[i]);
+        return (DEPTH.kappa[i - 1] + t * (DEPTH.kappa[i] - DEPTH.kappa[i - 1])) / s;
+      }
+    }
+    return null;
+  }
+  function slopeFor(k) {
+    var e = SLOPE && SLOPE.zones[k];
+    if (!e) return null;
+    var c = e[e.central];
+    if (!c) return null;
+    var band = e.band || { lo: c.lo, hi: c.hi };
+    return { c: Math.max(c.b, 0.05), lo: Math.max(Math.min(band.lo, c.lo), 0.05), hi: Math.max(band.hi, c.hi, 0.05), flat: band.lo <= 0.05, raw: c };
+  }
+  function rgba(hex, a) {
+    var n = parseInt(hex.slice(1), 16);
+    return 'rgba(' + (n >> 16) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')';
+  }
+  function pushBand(arr, k, color, upper, lower, grid) {
+    arr.push({ type: 'scatter', mode: 'lines', x: grid, y: upper, line: { width: 0, color: color }, legendgroup: k, showlegend: false, hoverinfo: 'skip' });
+    arr.push({ type: 'scatter', mode: 'lines', x: grid, y: lower, line: { width: 0, color: color }, fill: 'tonexty', fillcolor: rgba(color, 0.18), legendgroup: k, showlegend: false, hoverinfo: 'skip' });
+  }
+
+  function renderDepth() {
+    var note = $('note-depth');
+    if (!DEPTH) {
+      note.textContent = 'This tab needs newer data. Upload the new update_data.py to GitHub and run the workflow again. The calculation takes a while the first time.';
+      return;
+    }
+    var zones = selectedZones().filter(function (k) { return DEPTH.zones[k]; });
+    note.textContent = zones.length ? '' : 'Select at least one bidding zone in the panel above.';
+    var est = state.depthMode === 'est' && !!SLOPE;
+    var s = state.depthS, maxN = state.depthMax, dur = state.depthDur;
+    $('rng-depth').value = String(s);
+    $('rng-depth').disabled = est;
+    $('depth-s-label').textContent = est ? 'estimated per zone' : fmt(s, 1) + ' €/MWh per GW';
+    $('depth-help').textContent = est
+      ? 'Price impact is estimated per zone from historical load, wind, solar and price (see Empirical basis further down). The shaded band spans the model variants (95 % intervals). The estimate is based on variations in residual load of limited size, so large fleets are an extrapolation.'
+      : 'Price impact is how many euro per megawatt-hour the price moves when a 1 GW fleet charges or discharges at full power. A low value is a deep market that can take many batteries, and a high value is a shallow market that saturates quickly. The presets are the lowest, middle and highest estimated values among the zones. The shape of the curve is more reliable than the exact GW figure.';
+    if (!SLOPE) $('depth-est-note').textContent = 'The estimate is not available yet (it requires consumption data from ENTSO-E). Run the workflow again and it will appear. Until then the slider applies.';
+    else $('depth-est-note').textContent = '';
+
+    if (SLOPE) {
+      var cs = Object.keys(SLOPE.zones).map(function (k) { return SLOPE.zones[k][SLOPE.zones[k].central].b; }).filter(function (v) { return v > 0; }).sort(function (a, b) { return a - b; });
+      if (cs.length) {
+        var med = cs.length % 2 ? cs[(cs.length - 1) / 2] : (cs[cs.length / 2 - 1] + cs[cs.length / 2]) / 2;
+        var setPre = function (id, v, t) { var b = $(id); b.dataset.dpre = String(Math.round(v * 2) / 2); b.textContent = t + ' (' + fmt(v, 1) + ')'; };
+        setPre('pre-low', cs[0], 'Lowest'); setPre('pre-mid', med, 'Median'); setPre('pre-high', cs[cs.length - 1], 'Highest');
+      }
+    }
+    var grid = [];
+    for (var i = 0; i <= 80; i++) grid.push(maxN * i / 80);
+    var all = Object.keys(DEPTH.zones);
+    var rev0Max = Math.max.apply(null, all.map(function (k) { return DEPTH.zones[k].res[dur].rev[0]; }));
+    var spr0Max = Math.max.apply(null, all.map(function (k) { return DEPTH.zones[k].spread0; }));
+    var xaxis = { type: 'linear', range: [0, maxN], ticksuffix: ' GW', gridcolor: 'rgba(0,0,0,0)', linecolor: css('--line'), fixedrange: true };
+
+    var revTr = [], sprTr = [], noEst = [], used = {};
+    zones.forEach(function (k) {
+      var c = ZONE_COLORS[k] || '#888', zz = DEPTH.zones[k];
+      var sl = est ? slopeFor(k) : null;
+      if (est && !sl) noEst.push(k);
+      var sc = sl ? sl.c : s;
+      used[k] = { c: sc, lo: sl ? sl.lo : sc, hi: sl ? sl.hi : sc, sl: sl };
+      if (sl) {
+        pushBand(revTr, k, c, depthCurve(k, 'rev', sl.lo, grid), depthCurve(k, 'rev', sl.hi, grid), grid);
+        pushBand(sprTr, k, c, depthCurve(k, 'spread', sl.lo, grid), depthCurve(k, 'spread', sl.hi, grid), grid);
+      }
+      revTr.push({ type: 'scatter', mode: 'lines', name: k, legendgroup: k, x: grid, y: depthCurve(k, 'rev', sc, grid), line: { color: c, width: 2.8 }, hovertemplate: '%{y:.0f} k€/MW' });
+      var n50 = saturationAt(k, sc, 0.5);
+      if (n50 != null && n50 <= maxN) revTr.push({ type: 'scatter', mode: 'markers', name: k + ' (halved)', legendgroup: k, showlegend: false, x: [n50], y: [zz.res[dur].rev[0] * 0.5],
+        marker: { symbol: 'diamond', size: 11, color: c, line: { color: css('--ink'), width: 1.5 } }, hovertemplate: 'Revenue halved at %{x:.1f} GW<extra>' + k + '</extra>' });
+      sprTr.push({ type: 'scatter', mode: 'lines', name: k, legendgroup: k, x: grid, y: depthCurve(k, 'spread', sc, grid), line: { color: c, width: 2.8 }, hovertemplate: '%{y:.0f} €/MWh' });
+    });
+    if (noEst.length) $('depth-est-note').textContent = 'No estimate for ' + noEst.join(', ') + ', where the slider (' + fmt(s, 1) + ' €/MWh per GW) is used instead.';
+    Plotly.react('chart-depth-rev', revTr, layout(grid, { xaxis: xaxis, hovermode: 'x unified', yaxis: yAxis({ ticksuffix: ' k€' }, niceRange([0, rev0Max * 1.06], true)) }), CONFIG);
+    Plotly.react('chart-depth-spread', sprTr, layout(grid, { xaxis: xaxis, hovermode: 'x unified', yaxis: yAxis({ ticksuffix: ' €' }, niceRange([0, spr0Max * 1.06], true)) }), CONFIG);
+
+    /* mättnadspunkter, med osäkerhetsintervall när prispåverkan är skattad */
+    var maxK = DEPTH.kappa[DEPTH.kappa.length - 1];
+    var gw = function (n, sv) { return n == null ? '&gt; ' + fmt(maxK / sv) : fmt(n, n < 1 ? 2 : 1); };
+    var cell = function (k, f) {
+      var u = used[k], c = saturationAt(k, u.c, f);
+      if (!u.sl) return gw(c, u.c) + ' GW';
+      return gw(c, u.c) + ' GW <span style="color:var(--muted)">(' + gw(saturationAt(k, u.hi, f), u.hi) + '–' + gw(saturationAt(k, u.lo, f), u.lo) + ')</span>';
+    };
+    var html = '<table class="data-table"><thead><tr><th>Zone</th><th>Price impact</th><th>First MW (k€/yr)</th><th>Daily spread today</th><th>75 % left</th><th>50 % left</th><th>25 % left</th></tr></thead><tbody>';
+    zones.forEach(function (k) {
+      var zz = DEPTH.zones[k], u = used[k];
+      html += '<tr><td><strong>' + k + '</strong></td><td>' + fmt(u.c, 1) + (u.sl ? ' <span style="color:var(--muted)">(' + fmt(u.lo, 1) + '–' + fmt(u.hi, 1) + ')</span>' : '') + '</td><td>' + fmt(zz.res[dur].rev[0]) + '</td><td>' + fmt(zz.spread0) + ' €</td><td>' + cell(k, 0.75) + '</td><td>' + cell(k, 0.5) + '</td><td>' + cell(k, 0.25) + '</td></tr>';
+    });
+    $('depth-table').innerHTML = html + '</tbody></table>';
+    $('note-depth-ref').textContent = 'Parentheses show the range of the price-impact estimate across model variants, and hence the range for the saturation point. For context: according to Aurora Energy Research, Sweden passed 1 GW of batteries in operation in the first quarter of 2025, with 2.8 GW as the target for 2028. Much of that capacity sells ancillary services rather than arbitrage, and the capacity is spread over several bidding zones.';
+
+    renderSlopeEvidence(zones);
+  }
+
+  function renderSlopeEvidence(zones) {
+    var tbl = $('slope-table'), nt = $('note-slope');
+    if (!SLOPE) { tbl.innerHTML = ''; nt.textContent = 'The evidence is not available yet. Run the workflow again after uploading the new update_data.py.'; return; }
+    var fz = zones.filter(function (k) { return SLOPE.zones[k]; });
+    var f = function (o) { return o ? fmt(o.b, 1) + ' <span style="color:var(--muted)">(' + fmt(o.lo, 1) + '–' + fmt(o.hi, 1) + ')</span>' : '–'; };
+    var html = '<table class="data-table"><thead><tr><th>Zone</th><th>Main estimate</th><th>Range across model variants</th><th>Own residual load only</th><th>Controlling for Germany</th><th>Controlling for all zones</th><th>Observed residual load (5–95 %)</th><th>Hours</th></tr></thead><tbody>';
+    fz.forEach(function (k) {
+      var e = SLOPE.zones[k], c = e[e.central], bd = e.band || { lo: c.lo, hi: c.hi };
+      html += '<tr><td><strong>' + k + '</strong></td><td>' + f(c) + '</td><td>' + fmt(bd.lo, 1) + '–' + fmt(bd.hi, 1) + (bd.lo <= 0 ? ' *' : '') + '</td><td>' + f(e.a) + '</td><td>' + (e.b ? f(e.b) : 'own reference') + '</td><td>' + (e.c ? f(e.c) : '–') + '</td><td>' + fmt(e.rl_range[0], 1) + ' to +' + fmt(e.rl_range[1], 1) + ' GW</td><td>' + fmt(e.n) + '</td></tr>';
+    });
+    tbl.innerHTML = html + '</tbody></table>';
+    nt.textContent = 'Euro per MWh and GW. The main estimate controls for residual load in all other zones we have data for (including Norway). The range is the lowest and highest 95 % interval among the three controlled variants, and own residual load only is often too high. The estimate applies to variations of the size shown furthest right, and larger fleets are an extrapolation. * The range includes zero.';
+
+    var binTr = [], dpTr = [];
+    fz.forEach(function (k) {
+      var e = SLOPE.zones[k], c = ZONE_COLORS[k] || '#888', b = e[e.central].b;
+      binTr.push({ type: 'scatter', mode: 'markers', name: k, legendgroup: k, x: e.bins.x, y: e.bins.y, marker: { color: c, size: 7 }, hovertemplate: '%{y:.1f} € at %{x:.2f} GW' });
+      var xs = [e.bins.x[0], e.bins.x[e.bins.x.length - 1]];
+      binTr.push({ type: 'scatter', mode: 'lines', name: k + ' (slope)', legendgroup: k, showlegend: false, x: xs, y: xs.map(function (x) { return b * x; }), line: { color: c, width: 1.8, dash: 'dot' }, hoverinfo: 'skip' });
+      var names = Object.keys(SLOPE.dayparts), vals = names.map(function (n) { return e.dayparts[n] ? e.dayparts[n].b : null; });
+      dpTr.push({ type: 'bar', name: k, x: names.map(function (n) { return DP_EN[n] || (n.charAt(0).toUpperCase() + n.slice(1)); }), y: vals, marker: { color: c },
+        error_y: { type: 'data', symmetric: false, thickness: 1.3, width: 3,
+                   array: names.map(function (n) { return e.dayparts[n] ? e.dayparts[n].hi - e.dayparts[n].b : 0; }),
+                   arrayminus: names.map(function (n) { return e.dayparts[n] ? e.dayparts[n].b - e.dayparts[n].lo : 0; }) },
+        hovertemplate: '%{y:.1f} €/MWh per GW' });
+    });
+    Plotly.react('chart-slope-bins', binTr, layout(['x'], { xaxis: { type: 'linear', ticksuffix: ' GW', gridcolor: css('--line'), zeroline: true, zerolinecolor: css('--line'), fixedrange: true }, hovermode: 'closest', yaxis: yAxis({ ticksuffix: ' €', zeroline: true, zerolinecolor: css('--line') }) }), CONFIG);
+    Plotly.react('chart-slope-dayparts', dpTr, layout(['x'], { xaxis: { type: 'category', gridcolor: 'rgba(0,0,0,0)', linecolor: css('--line'), fixedrange: true }, barmode: 'group', bargap: 0.25, yaxis: yAxis({ ticksuffix: ' €', zeroline: true, zerolinecolor: css('--line') }) }), CONFIG);
+  }
+
+
+  /* ---------- Samordning ---------- */
+  function setPressed(containerId, attr, value) {
+    Array.prototype.forEach.call($(containerId).querySelectorAll('button'), function (b) {
+      b.setAttribute('aria-pressed', String(b.getAttribute(attr) === String(value)));
+    });
+  }
+
+  function renderAll() {
+    renderZoneChips();
+    setPressed('seg-depthdur', 'data-ddur', state.depthDur);
+    setPressed('seg-depthmax', 'data-dmax', state.depthMax);
+    setPressed('seg-depthmode', 'data-dmode', state.depthMode);
+    renderDepth();
+  }
+
+  function click(id, fn) {
+    $(id).addEventListener('click', function (e) {
+      var b = e.target.closest('button'); if (!b) return;
+      fn(b); renderAll();
+    });
+  }
+  function bind() {
+    click('zone-chips', function (b) {
+      var k = b.dataset.zone, i = state.selZones.indexOf(k);
+      if (i >= 0) state.selZones.splice(i, 1); else state.selZones.push(k);
+    });
+    click('zonebar-quick', function (b) {
+      var q = b.dataset.quick;
+      state.selZones = q === 'all' ? DATA.order.slice() : q === 'se' ? DATA.order.filter(function (k) { return /^SE/.test(k); }) : [];
+    });
+    click('seg-depthdur', function (b) { state.depthDur = b.dataset.ddur; });
+    click('seg-depthmax', function (b) { state.depthMax = parseFloat(b.dataset.dmax); });
+    click('seg-depthmode', function (b) { state.depthMode = b.dataset.dmode; });
+    click('seg-depthpre', function (b) { state.depthS = parseFloat(b.dataset.dpre); state.depthMode = 'manual'; });
+    $('rng-depth').addEventListener('input', function (e) {
+      state.depthS = parseFloat(e.target.value) || 15; state.depthMode = 'manual'; renderAll();
+    });
+  }
+
+  function showError(msg) {
+    var el = $('error');
+    el.textContent = msg;
+    el.hidden = false;
+  }
+
+  /* Data är inbäddad i sidan (så att den går att öppna direkt från datorn) eller hämtas från data/ */
+  function load(name) {
+    if (window.EMBED && window.EMBED[name]) return Promise.resolve(window.EMBED[name]);
+    return fetch('data/' + name + '.json', { cache: 'no-cache' }).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
+  }
+
+  Promise.all([load('summary'), load('depth'), load('slope')]).then(function (res) {
+    DATA = res[0]; DEPTH = res[1]; SLOPE = res[2];
+    if (!DATA || !DEPTH) throw new Error('data');
+    var ZN = { SE1: 'SE1 Luleå', SE2: 'SE2 Sundsvall', SE3: 'SE3 Stockholm', SE4: 'SE4 Malmö', DE: 'Germany (DE-LU)', DK1: 'Denmark West (DK1)', DK2: 'Denmark East (DK2)', FI: 'Finland' };
+    [DATA, DEPTH, SLOPE].forEach(function (obj) {
+      if (obj && obj.zones) Object.keys(obj.zones).forEach(function (k) { if (ZN[k]) obj.zones[k].name = ZN[k]; });
+    });
+    $('demo-banner').hidden = !DATA.demo;
+    $('updated').textContent = new Date(DATA.generated).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
+    bind();
+    renderAll();
+  }).catch(function () {
+    showError('Could not read the data. Run build_viewer.py (or the workflow) so that the data is embedded in this page.');
+  });
+})();
+</script>
+</body>
+</html>
