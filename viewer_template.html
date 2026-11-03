@@ -124,9 +124,10 @@
   .quick button { font: 500 12.5px var(--font-body); background: none; border: 0; color: var(--muted); text-decoration: underline; cursor: pointer; padding: 4px 6px; }
 
   .data-table-wrap { overflow-x: auto; }
-  .data-table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 13px; }
-  .data-table th, .data-table td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
-  .data-table th:nth-child(-n+2), .data-table td:nth-child(-n+2) { text-align: left; }
+  .data-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  .data-table .nw { white-space: nowrap; }
+  .data-table th, .data-table td { padding: 6px 6px; border-bottom: 1px solid var(--line); text-align: right; white-space: normal; vertical-align: top; }
+  .data-table th:first-child, .data-table td:first-child { text-align: left; }
   .data-table thead th { color: var(--muted); font-weight: 600; font-size: 12px; vertical-align: bottom; }
   .data-table thead th .u { display: block; font-weight: 400; font-size: 11px; color: var(--muted); }
   .data-table thead th.grp { text-align: center; border-bottom: 1px solid var(--line); }
@@ -519,13 +520,13 @@
     var gw = function (n, sv) { return n == null ? '&gt; ' + fmt(maxK / sv) : fmt(n, n < 1 ? 2 : 1); };
     var cell = function (k, f) {
       var u = used[k], c = saturationAt(k, u.c, f);
-      if (!u.sl) return gw(c, u.c);
-      return gw(c, u.c) + ' <span style="color:var(--muted)">(' + gw(saturationAt(k, u.hi, f), u.hi) + '–' + gw(saturationAt(k, u.lo, f), u.lo) + ')</span>';
+      if (!u.sl) return '<span class="nw">' + gw(c, u.c) + '</span>';
+      return '<span class="nw">' + gw(c, u.c) + '</span> <span class="nw" style="color:var(--muted)">(' + gw(saturationAt(k, u.hi, f), u.hi) + '–' + gw(saturationAt(k, u.lo, f), u.lo) + ')</span>';
     };
     var html = '<table class="data-table"><thead><tr><th>Zone</th><th>Price impact<span class="u">€/MWh per GW</span></th><th>First MW revenue<span class="u">k€ per MW and year</span></th><th>Daily spread today<span class="u">€/MWh</span></th><th>75 % left<span class="u">fleet size, GW</span></th><th>50 % left<span class="u">fleet size, GW</span></th><th>25 % left<span class="u">fleet size, GW</span></th></tr></thead><tbody>';
     zones.forEach(function (k) {
       var zz = DEPTH.zones[k], u = used[k];
-      html += '<tr><td><strong>' + k + '</strong></td><td>' + fmt(u.c, 1) + (u.sl ? ' <span style="color:var(--muted)">(' + fmt(u.lo, 1) + '–' + fmt(u.hi, 1) + ')</span>' : '') + '</td><td>' + fmt(zz.res[dur].rev[0]) + '</td><td>' + fmt(zz.spread0) + '</td><td>' + cell(k, 0.75) + '</td><td>' + cell(k, 0.5) + '</td><td>' + cell(k, 0.25) + '</td></tr>';
+      html += '<tr><td><strong>' + k + '</strong></td><td><span class="nw">' + fmt(u.c, 1) + '</span>' + (u.sl ? ' <span class="nw" style="color:var(--muted)">(' + fmt(u.lo, 1) + '–' + fmt(u.hi, 1) + ')</span>' : '') + '</td><td>' + fmt(zz.res[dur].rev[0]) + '</td><td>' + fmt(zz.spread0) + '</td><td>' + cell(k, 0.75) + '</td><td>' + cell(k, 0.5) + '</td><td>' + cell(k, 0.25) + '</td></tr>';
     });
     $('depth-table').innerHTML = html + '</tbody></table>';
     $('note-depth-ref').textContent = 'Units are given in the column headings. "75 / 50 / 25 % left" is the fleet size at which revenue per MW has fallen to that share of the first MW\'s revenue. Parentheses show the range of the price-impact estimate across model variants, and hence the range for the saturation point. For context: according to Aurora Energy Research, Sweden passed 1 GW of batteries in operation in the first quarter of 2025, with 2.8 GW as the target for 2028. Much of that capacity sells ancillary services rather than arbitrage, and the capacity is spread over several bidding zones.';
@@ -537,14 +538,16 @@
     var tbl = $('slope-table'), nt = $('note-slope');
     if (!SLOPE) { tbl.innerHTML = ''; nt.textContent = 'The evidence is not available yet. Run the workflow again after uploading the new update_data.py.'; return; }
     var fz = zones.filter(function (k) { return SLOPE.zones[k]; });
-    var f = function (o) { return o ? fmt(o.b, 1) + ' <span style="color:var(--muted)">(' + fmt(o.lo, 1) + '–' + fmt(o.hi, 1) + ')</span>' : '–'; };
-    var html = '<table class="data-table"><thead><tr><th rowspan="2">Zone</th><th colspan="5" class="grp">Price impact<span class="u">€/MWh per GW</span></th><th rowspan="2">Observed residual load, 5–95 %<span class="u">GW</span></th><th rowspan="2">Hours<span class="u">h</span></th></tr><tr><th>Main estimate</th><th>Range across model variants</th><th>Own residual load only</th><th>Controlling for Germany</th><th>Controlling for all zones</th></tr></thead><tbody>';
+    var f = function (o) { return o ? '<span class="nw">' + fmt(o.b, 1) + '</span> <span class="nw" style="color:var(--muted)">(' + fmt(o.lo, 1) + '–' + fmt(o.hi, 1) + ')</span>' : '–'; };
+    var U = '<span class="u">€/MWh per GW</span>';
+    var html = '<table class="data-table"><thead><tr><th>Zone</th><th>Main estimate' + U + '</th><th>Range across model variants' + U + '</th><th>Own residual load only' + U + '</th><th>Controlling for Germany' + U + '</th><th>Controlling for all zones' + U + '</th><th>Observed residual load, 5–95 %<span class="u">GW</span></th></tr></thead><tbody>';
     fz.forEach(function (k) {
       var e = SLOPE.zones[k], c = e[e.central], bd = e.band || { lo: c.lo, hi: c.hi };
-      html += '<tr><td><strong>' + k + '</strong></td><td>' + f(c) + '</td><td>' + fmt(bd.lo, 1) + '–' + fmt(bd.hi, 1) + (bd.lo <= 0 ? ' *' : '') + '</td><td>' + f(e.a) + '</td><td>' + (e.b ? f(e.b) : 'own reference') + '</td><td>' + (e.c ? f(e.c) : '–') + '</td><td>' + fmt(e.rl_range[0], 1) + ' to +' + fmt(e.rl_range[1], 1) + '</td><td>' + fmt(e.n) + '</td></tr>';
+      html += '<tr><td><strong>' + k + '</strong></td><td>' + f(c) + '</td><td><span class="nw">' + fmt(bd.lo, 1) + '–' + fmt(bd.hi, 1) + (bd.lo <= 0 ? ' *' : '') + '</span></td><td>' + f(e.a) + '</td><td>' + (e.b ? f(e.b) : 'own reference') + '</td><td>' + (e.c ? f(e.c) : '–') + '</td><td><span class="nw">' + fmt(e.rl_range[0], 1) + ' to +' + fmt(e.rl_range[1], 1) + '</span></td></tr>';
     });
     tbl.innerHTML = html + '</tbody></table>';
-    nt.textContent = 'Units are given in the column headings. Parentheses show the 95 % interval. The main estimate controls for residual load in all other zones we have data for (including Norway). The range is the lowest and highest 95 % interval among the three controlled variants, and own residual load only is often too high. The estimate applies to variations of the size shown furthest right, and larger fleets are an extrapolation. * The range includes zero.';
+    var ns = fz.map(function (k) { return SLOPE.zones[k].n; });
+    nt.textContent = 'Units are given in the column headings. Each estimate uses ' + (ns.length ? fmt(Math.min.apply(null, ns)) + (Math.min.apply(null, ns) === Math.max.apply(null, ns) ? '' : '–' + fmt(Math.max.apply(null, ns))) : '') + ' hourly observations per zone. Parentheses show the 95 % interval. The main estimate controls for residual load in all other zones we have data for (including Norway). The range is the lowest and highest 95 % interval among the three controlled variants, and own residual load only is often too high. The estimate applies to variations of the size shown furthest right, and larger fleets are an extrapolation. * The range includes zero.';
 
     var binTr = [], dpTr = [];
     fz.forEach(function (k) {
