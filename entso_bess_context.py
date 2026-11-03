@@ -80,7 +80,10 @@ def get_client():
         from entsoe import EntsoePandasClient
     except ImportError:
         sys.exit("Installera först: pip install entsoe-py")
-    return EntsoePandasClient(api_key=token)
+    try:
+        return EntsoePandasClient(api_key=token, timeout=60)  # utan timeout kan en hämtning hänga för alltid
+    except TypeError:  # äldre entsoe-py utan timeout-argument
+        return EntsoePandasClient(api_key=token)
 
 
 def year_window(year: int) -> tuple[pd.Timestamp, pd.Timestamp]:
@@ -90,25 +93,50 @@ def year_window(year: int) -> tuple[pd.Timestamp, pd.Timestamp]:
     return start, min(end, now)
 
 
-def retry(fn, tries: int = 3, wait: float = 5.0):
-    """Kör fn() med enkel omförsök-logik. Returnerar None om data saknas."""
+def _is_transient(exc: Exception) -> bool:
+    """Bara nätverksfel, timeouts, rate limit och 5xx är värda ett nytt försök."""
+    try:
+        import requests
+
+        if isinstance(exc, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+            return True
+    except ImportError:
+        pass
+    msg = str(exc)
+    return any(t in msg for t in ("429", "Too Many", "500", "502", "503", "504", "timed out", "Timeout"))
+
+
+def retry(fn, tries: int = 3, wait: float = 10.0, label: str = ""):
+    """Kör fn(). Returnerar None om data saknas eller om felet inte är övergående."""
     try:
         from entsoe.exceptions import NoMatchingDataError
-    except Exception:  # äldre/nyare versioner
+    except Exception:
         NoMatchingDataError = ()  # type: ignore
 
     for i in range(1, tries + 1):
+        t0 = time.time()
         try:
-            return fn()
+            res = fn()
+            LOG.debug("%s klar på %.1fs", label, time.time() - t0)
+            return res
         except NoMatchingDataError:
             return None
-        except Exception as exc:  # nätverk, rate limit, 5xx
+        except Exception as exc:
             msg = str(exc)
             if "No matching data" in msg:
                 return None
-            LOG.warning("Försök %d/%d misslyckades: %s", i, tries, msg[:200])
-            time.sleep(wait * i)
+            if _is_transient(exc) and i < tries:
+                LOG.warning("%s: övergående fel (%d/%d) efter %.0fs: %s", label, i, tries, time.time() - t0, msg[:150])
+                time.sleep(wait * i)
+                continue
+            LOG.warning("%s: hoppar över (%s: %s)", label, type(exc).__name__, msg[:200])
+            return None
     return None
+
+
+def stale(year: int, refresh: bool) -> bool:
+    """Innevarande år ska alltid hämtas om; avslutade år kan återanvändas från cachen."""
+    return refresh or year >= pd.Timestamp.now(tz=TZ).year
 
 
 def cached(cache_dir: Path, key: str, refresh: bool, loader):
@@ -144,9 +172,9 @@ def fetch_load(client, zone, year, cache_dir, refresh):
         return None
 
     def loader():
-        return retry(lambda: client.query_load(zone, start=start, end=end))
+        return retry(lambda: client.query_load(zone, start=start, end=end), label=f"load {zone} {year}")
 
-    return to_series(cached(cache_dir, f"load_{zone}_{year}", refresh, loader))
+    return to_series(cached(cache_dir, f"load_{zone}_{year}", stale(year, refresh), loader))
 
 
 def fetch_prices(client, zone, year, cache_dir, refresh):
@@ -155,9 +183,9 @@ def fetch_prices(client, zone, year, cache_dir, refresh):
         return None
 
     def loader():
-        return retry(lambda: client.query_day_ahead_prices(zone, start=start, end=end))
+        return retry(lambda: client.query_day_ahead_prices(zone, start=start, end=end), label=f"priser {zone} {year}")
 
-    return to_series(cached(cache_dir, f"da_{zone}_{year}", refresh, loader))
+    return to_series(cached(cache_dir, f"da_{zone}_{year}", stale(year, refresh), loader))
 
 
 def fetch_installed(client, zone, year, cache_dir, refresh) -> dict[str, float]:
@@ -167,10 +195,11 @@ def fetch_installed(client, zone, year, cache_dir, refresh) -> dict[str, float]:
 
     def loader():
         return retry(
-            lambda: client.query_installed_generation_capacity(zone, start=start, end=end)
+            lambda: client.query_installed_generation_capacity(zone, start=start, end=end),
+            label=f"installerad kapacitet {zone} {year}",
         )
 
-    df = cached(cache_dir, f"inst_{zone}_{year}", refresh, loader)
+    df = cached(cache_dir, f"inst_{zone}_{year}", stale(year, refresh), loader)
     out = {"solar_mw": np.nan, "wind_mw": np.nan}
     if df is None or len(df) == 0:
         return out
@@ -198,9 +227,9 @@ def fetch_gen_proxy(client, zone, year, cache_dir, refresh) -> dict[str, float]:
         for psr in psr_list:
 
             def loader(psr=psr):
-                return retry(lambda: client.query_generation(zone, start=start, end=end, psr_type=psr))
+                return retry(lambda: client.query_generation(zone, start=start, end=end, psr_type=psr), label=f"produktion {psr} {zone} {year}")
 
-            df = cached(cache_dir, f"gen_{zone}_{psr}_{year}", refresh, loader)
+            df = cached(cache_dir, f"gen_{zone}_{psr}_{year}", stale(year, refresh), loader)
             s = to_series(df.iloc[:, 0] if isinstance(df, pd.DataFrame) and df.shape[1] else df)
             if s is None:
                 continue
@@ -296,8 +325,9 @@ def main() -> None:
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
 
-    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
-                        format="%(asctime)s %(levelname)s %(message)s")
+    # Root på INFO: DEBUG-loggning i requests/urllib3 skulle skriva ut URL:er med token.
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    LOG.setLevel(logging.DEBUG if args.verbose else logging.INFO)
 
     this_year = pd.Timestamp.now(tz=TZ).year
     years = args.years or list(range(this_year - 4, this_year + 1))
@@ -310,24 +340,38 @@ def main() -> None:
 
     client = get_client()
     rows = []
+    n_fail = 0
     for zone in zones:
         for year in years:
+            t0 = time.time()
             LOG.info("Hämtar %s %d ...", zone, year)
-            load = fetch_load(client, zone, year, cache_dir, args.refresh)
-            prices = fetch_prices(client, zone, year, cache_dir, args.refresh)
-            inst = fetch_installed(client, zone, year, cache_dir, args.refresh)
-            if args.gen_proxy and (np.isnan(inst["solar_mw"]) or np.isnan(inst["wind_mw"])):
-                proxy = fetch_gen_proxy(client, zone, year, cache_dir, args.refresh)
-                for k in inst:
-                    if np.isnan(inst[k]):
-                        inst[k] = proxy[k]
-                        inst["capacity_is_proxy"] = True
+            try:
+                load = fetch_load(client, zone, year, cache_dir, args.refresh)
+                prices = fetch_prices(client, zone, year, cache_dir, args.refresh)
+                inst = fetch_installed(client, zone, year, cache_dir, args.refresh)
+                used_proxy = False
+                if args.gen_proxy and (np.isnan(inst["solar_mw"]) or np.isnan(inst["wind_mw"])):
+                    proxy = fetch_gen_proxy(client, zone, year, cache_dir, args.refresh)
+                    for k in ("solar_mw", "wind_mw"):
+                        if np.isnan(inst[k]) and not np.isnan(proxy[k]):
+                            inst[k] = proxy[k]
+                            used_proxy = True
 
-            row = {"zone": zone, "year": year, "partial_year": year == this_year}
-            row.update(load_metrics(load))
-            row.update(inst)
-            row.update(price_metrics(prices))
-            rows.append(row)
+                row = {"zone": zone, "year": year, "partial_year": year == this_year,
+                       "capacity_is_proxy": used_proxy}
+                row.update(load_metrics(load))
+                row.update(inst)
+                row.update(price_metrics(prices))
+                rows.append(row)
+            except Exception:
+                n_fail += 1
+                LOG.exception("Misslyckades för %s %d - fortsätter med nästa", zone, year)
+            LOG.info("  %s %d klar på %.0fs", zone, year, time.time() - t0)
+
+    if not rows:
+        sys.exit("Ingen data hämtades alls. Kontrollera token och nätverk.")
+    if n_fail:
+        LOG.warning("%d zon/år-kombinationer misslyckades (se ovan).", n_fail)
 
     df = pd.DataFrame(rows)
     if "capacity_is_proxy" not in df.columns:
