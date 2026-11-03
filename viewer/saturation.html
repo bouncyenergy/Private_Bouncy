@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BESS market saturation by bidding zone | Bouncy Energy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1c2330; --muted: #5d6675; --card: #f5f7fa; --line: #dde2ea;
+    --nordic: #1f6feb; --ref: #9aa4b2; --accent: #e07a1f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #11151c; --fg: #e8ecf2; --muted: #9aa4b2; --card: #1a202b; --line: #2b3342;
+            --nordic: #5b9bff; --ref: #6b7686; --accent: #f0983f; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif; line-height: 1.5; }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1, h2 { font-family: 'Space Grotesk', 'Inter', system-ui, sans-serif; margin: 0 0 8px; }
+  h1 { font-size: 1.8rem; } h2 { font-size: 1.15rem; }
+  p.lead { color: var(--muted); margin: 0 0 20px; max-width: 760px; }
+  .controls { display: flex; gap: 12px; align-items: center; margin: 16px 0 20px; flex-wrap: wrap; }
+  select { font: inherit; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px;
+           background: var(--card); color: var(--fg); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(480px, 1fr)); gap: 16px; }
+  @media (max-width: 560px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  .card p { color: var(--muted); font-size: .85rem; margin: 0 0 10px; }
+  .chart-wrap { position: relative; height: 300px; }
+  .empty { color: var(--muted); font-size: .9rem; padding: 40px 8px; text-align: center; }
+  .tablewrap { overflow-x: auto; margin-top: 16px; }
+  table { border-collapse: collapse; width: 100%; font-size: .85rem; }
+  th, td { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  footer { color: var(--muted); font-size: .8rem; margin-top: 28px; }
+  .legend span { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin: 0 4px 0 12px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>BESS market saturation by bidding zone</h1>
+  <p class="lead">Market conditions that drive battery revenues in each price area, and how much battery capacity
+  is already installed relative to system size. Zones in grey are reference markets for comparison.</p>
+
+  <div class="controls">
+    <label for="year">Year:</label>
+    <select id="year"></select>
+    <span class="legend"><span style="background:var(--nordic)"></span>Nordic <span style="background:var(--ref)"></span>Reference</span>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Negative-price hours</h2>
+      <p>Hours per year with negative day-ahead prices (hourly average).</p>
+      <div class="chart-wrap"><canvas id="c_neg"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>Average daily spread, 4 h (EUR/MWh)</h2>
+      <p>Mean of the 4 highest hours minus the 4 lowest hours each day. Gross, before losses and fees.</p>
+      <div class="chart-wrap"><canvas id="c_spread"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>Peak load (GW)</h2>
+      <p>Highest hourly average load in the year.</p>
+      <div class="chart-wrap"><canvas id="c_peak"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>Installed BESS as % of peak load</h2>
+      <p>Front-of-the-meter battery power (MW) relative to peak load.</p>
+      <div class="chart-wrap"><canvas id="c_bess"></canvas></div>
+      <div class="empty" id="bess_empty" style="display:none">No BESS capacity data entered for this year yet.</div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h2>Spread over time (4 h, EUR/MWh)</h2>
+    <p>Same scale for all zones. The current year is year-to-date.</p>
+    <div class="chart-wrap" style="height:340px"><canvas id="c_trend"></canvas></div>
+  </div>
+
+  <div class="card tablewrap" style="margin-top:16px">
+    <h2>Data</h2>
+    <table id="tbl"></table>
+  </div>
+
+  <footer>Source: ENTSO-E Transparency Platform (load, day-ahead prices, installed capacity). Installed BESS from
+  TSO and market reports entered manually. Spreads are gross and use hourly averages; partial years are year-to-date.</footer>
+</main>
+
+<script>
+const DATA = [{"zone":"SE_1","year":2023,"partial_year":false,"peak_load_mw":2176.0,"solar_mw":null,"wind_mw":null,"neg_hours":434,"mean_price":39.97,"spread_2h":32.031,"spread_4h":28.408,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"SE_1","year":2024,"partial_year":false,"peak_load_mw":2572.0,"solar_mw":null,"wind_mw":null,"neg_hours":627,"mean_price":25.054,"spread_2h":25.163,"spread_4h":21.905,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"SE_1","year":2025,"partial_year":false,"peak_load_mw":2434.0,"solar_mw":null,"wind_mw":null,"neg_hours":520,"mean_price":16.713,"spread_2h":27.821,"spread_4h":24.054,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"SE_1","year":2026,"partial_year":true,"peak_load_mw":4428.25,"solar_mw":null,"wind_mw":null,"neg_hours":69,"mean_price":42.548,"spread_2h":44.943,"spread_4h":40.044,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"SE_2","year":2023,"partial_year":false,"peak_load_mw":3172.0,"solar_mw":null,"wind_mw":null,"neg_hours":434,"mean_price":39.975,"spread_2h":32.027,"spread_4h":28.396,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"SE_2","year":2024,"partial_year":false,"peak_load_mw":4272.0,"solar_mw":null,"wind_mw":null,"neg_hours":723,"mean_price":24.645,"spread_2h":25.471,"spread_4h":22.172,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"SE_2","year":2025,"partial_year":false,"peak_load_mw":4241.0,"solar_mw":null,"wind_mw":null,"neg_hours":681,"mean_price":16.534,"spread_2h":29.081,"spread_4h":25.06,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"SE_2","year":2026,"partial_year":true,"peak_load_mw":7279.0,"solar_mw":null,"wind_mw":null,"neg_hours":111,"mean_price":44.25,"spread_2h":46.797,"spread_4h":41.631,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"SE_3","year":2023,"partial_year":false,"peak_load_mw":16155.0,"solar_mw":null,"wind_mw":null,"neg_hours":429,"mean_price":51.7,"spread_2h":60.443,"spread_4h":53.14,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"SE_3","year":2024,"partial_year":false,"peak_load_mw":16747.0,"solar_mw":null,"wind_mw":null,"neg_hours":652,"mean_price":35.771,"spread_2h":48.41,"spread_4h":41.831,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"SE_3","year":2025,"partial_year":false,"peak_load_mw":14492.0,"solar_mw":null,"wind_mw":null,"neg_hours":345,"mean_price":46.234,"spread_2h":72.892,"spread_4h":63.73,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"SE_3","year":2026,"partial_year":true,"peak_load_mw":15781.25,"solar_mw":null,"wind_mw":null,"neg_hours":91,"mean_price":71.599,"spread_2h":81.632,"spread_4h":73.251,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"SE_4","year":2023,"partial_year":false,"peak_load_mw":4314.0,"solar_mw":null,"wind_mw":null,"neg_hours":368,"mean_price":64.877,"spread_2h":79.822,"spread_4h":70.12,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"SE_4","year":2024,"partial_year":false,"peak_load_mw":4696.0,"solar_mw":null,"wind_mw":null,"neg_hours":632,"mean_price":49.711,"spread_2h":81.887,"spread_4h":70.05,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"SE_4","year":2025,"partial_year":false,"peak_load_mw":4287.0,"solar_mw":null,"wind_mw":null,"neg_hours":374,"mean_price":60.427,"spread_2h":94.725,"spread_4h":82.753,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"SE_4","year":2026,"partial_year":true,"peak_load_mw":4514.75,"solar_mw":null,"wind_mw":null,"neg_hours":92,"mean_price":94.342,"spread_2h":115.694,"spread_4h":103.803,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"NO_1","year":2023,"partial_year":false,"peak_load_mw":7405.05,"solar_mw":null,"wind_mw":null,"neg_hours":381,"mean_price":66.951,"spread_2h":37.74,"spread_4h":33.048,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"NO_1","year":2024,"partial_year":false,"peak_load_mw":8165.99,"solar_mw":null,"wind_mw":null,"neg_hours":231,"mean_price":42.035,"spread_2h":36.129,"spread_4h":31.049,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"NO_1","year":2025,"partial_year":false,"peak_load_mw":7169.45,"solar_mw":null,"wind_mw":null,"neg_hours":57,"mean_price":58.358,"spread_2h":52.83,"spread_4h":45.747,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"NO_1","year":2026,"partial_year":true,"peak_load_mw":7729.283,"solar_mw":null,"wind_mw":null,"neg_hours":13,"mean_price":107.85,"spread_2h":62.385,"spread_4h":55.928,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"NO_2","year":2023,"partial_year":false,"peak_load_mw":6288.49,"solar_mw":null,"wind_mw":null,"neg_hours":174,"mean_price":79.447,"spread_2h":45.725,"spread_4h":40.069,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"NO_2","year":2024,"partial_year":false,"peak_load_mw":6434.45,"solar_mw":null,"wind_mw":null,"neg_hours":206,"mean_price":50.126,"spread_2h":42.82,"spread_4h":36.739,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"NO_2","year":2025,"partial_year":false,"peak_load_mw":6051.84,"solar_mw":null,"wind_mw":null,"neg_hours":36,"mean_price":65.401,"spread_2h":54.277,"spread_4h":46.664,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"NO_2","year":2026,"partial_year":true,"peak_load_mw":6769.295,"solar_mw":null,"wind_mw":null,"neg_hours":57,"mean_price":111.12,"spread_2h":72.482,"spread_4h":64.972,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"NO_3","year":2023,"partial_year":false,"peak_load_mw":4510.2,"solar_mw":null,"wind_mw":null,"neg_hours":401,"mean_price":38.551,"spread_2h":26.164,"spread_4h":23.212,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"NO_3","year":2024,"partial_year":false,"peak_load_mw":4721.35,"solar_mw":null,"wind_mw":null,"neg_hours":173,"mean_price":28.168,"spread_2h":20.748,"spread_4h":17.974,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"NO_3","year":2025,"partial_year":false,"peak_load_mw":4667.1,"solar_mw":null,"wind_mw":null,"neg_hours":82,"mean_price":21.112,"spread_2h":23.495,"spread_4h":20.607,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"NO_3","year":2026,"partial_year":true,"peak_load_mw":4845.222,"solar_mw":null,"wind_mw":null,"neg_hours":2,"mean_price":84.767,"spread_2h":45.195,"spread_4h":39.773,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"NO_4","year":2023,"partial_year":false,"peak_load_mw":3333.82,"solar_mw":null,"wind_mw":null,"neg_hours":375,"mean_price":29.946,"spread_2h":18.318,"spread_4h":16.394,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"NO_4","year":2024,"partial_year":false,"peak_load_mw":3322.5,"solar_mw":null,"wind_mw":null,"neg_hours":152,"mean_price":23.346,"spread_2h":13.89,"spread_4h":12.263,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"NO_4","year":2025,"partial_year":false,"peak_load_mw":3370.41,"solar_mw":null,"wind_mw":null,"neg_hours":143,"mean_price":8.715,"spread_2h":11.957,"spread_4h":10.529,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"NO_4","year":2026,"partial_year":true,"peak_load_mw":3457.682,"solar_mw":null,"wind_mw":null,"neg_hours":169,"mean_price":33.079,"spread_2h":33.33,"spread_4h":29.086,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"NO_5","year":2023,"partial_year":false,"peak_load_mw":3009.28,"solar_mw":null,"wind_mw":null,"neg_hours":374,"mean_price":67.045,"spread_2h":33.356,"spread_4h":29.255,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"NO_5","year":2024,"partial_year":false,"peak_load_mw":3045.43,"solar_mw":null,"wind_mw":null,"neg_hours":142,"mean_price":41.028,"spread_2h":27.528,"spread_4h":23.337,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"NO_5","year":2025,"partial_year":false,"peak_load_mw":3147.37,"solar_mw":null,"wind_mw":null,"neg_hours":34,"mean_price":46.92,"spread_2h":32.852,"spread_4h":28.179,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"NO_5","year":2026,"partial_year":true,"peak_load_mw":3018.532,"solar_mw":null,"wind_mw":null,"neg_hours":0,"mean_price":106.694,"spread_2h":43.384,"spread_4h":37.974,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"DK_1","year":2023,"partial_year":false,"peak_load_mw":3584.75,"solar_mw":null,"wind_mw":null,"neg_hours":281,"mean_price":86.819,"spread_2h":86.894,"spread_4h":75.909,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"DK_1","year":2024,"partial_year":false,"peak_load_mw":3767.45,"solar_mw":null,"wind_mw":null,"neg_hours":375,"mean_price":70.639,"spread_2h":92.735,"spread_4h":79.51,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"DK_1","year":2025,"partial_year":false,"peak_load_mw":3887.6,"solar_mw":null,"wind_mw":null,"neg_hours":441,"mean_price":81.1,"spread_2h":107.107,"spread_4h":93.352,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"DK_1","year":2026,"partial_year":true,"peak_load_mw":4356.927,"solar_mw":null,"wind_mw":null,"neg_hours":202,"mean_price":113.144,"spread_2h":136.09,"spread_4h":120.494,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"DK_2","year":2023,"partial_year":false,"peak_load_mw":2583.88,"solar_mw":null,"wind_mw":null,"neg_hours":231,"mean_price":81.248,"spread_2h":90.444,"spread_4h":79.281,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"DK_2","year":2024,"partial_year":false,"peak_load_mw":5968.37,"solar_mw":null,"wind_mw":null,"neg_hours":275,"mean_price":70.863,"spread_2h":96.621,"spread_4h":82.784,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"DK_2","year":2025,"partial_year":false,"peak_load_mw":2452.457,"solar_mw":null,"wind_mw":null,"neg_hours":265,"mean_price":82.491,"spread_2h":111.181,"spread_4h":96.468,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"DK_2","year":2026,"partial_year":true,"peak_load_mw":2732.793,"solar_mw":null,"wind_mw":null,"neg_hours":94,"mean_price":115.476,"spread_2h":139.922,"spread_4h":123.532,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"FI","year":2023,"partial_year":false,"peak_load_mw":13209.75,"solar_mw":null,"wind_mw":null,"neg_hours":467,"mean_price":56.466,"spread_2h":70.357,"spread_4h":62.375,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"FI","year":2024,"partial_year":false,"peak_load_mw":14992.75,"solar_mw":null,"wind_mw":null,"neg_hours":725,"mean_price":45.571,"spread_2h":74.668,"spread_4h":64.721,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"FI","year":2025,"partial_year":false,"peak_load_mw":13560.5,"solar_mw":null,"wind_mw":null,"neg_hours":465,"mean_price":40.491,"spread_2h":78.788,"spread_4h":68.504,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"FI","year":2026,"partial_year":true,"peak_load_mw":15458.75,"solar_mw":null,"wind_mw":null,"neg_hours":60,"mean_price":57.839,"spread_2h":68.029,"spread_4h":61.474,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"DE_LU","year":2023,"partial_year":false,"peak_load_mw":74515.165,"solar_mw":null,"wind_mw":null,"neg_hours":301,"mean_price":95.171,"spread_2h":91.66,"spread_4h":80.165,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"DE_LU","year":2024,"partial_year":false,"peak_load_mw":76298.27,"solar_mw":null,"wind_mw":null,"neg_hours":457,"mean_price":78.507,"spread_2h":103.803,"spread_4h":88.572,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"DE_LU","year":2025,"partial_year":false,"peak_load_mw":76400.223,"solar_mw":null,"wind_mw":null,"neg_hours":576,"mean_price":89.319,"spread_2h":116.079,"spread_4h":100.407,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"DE_LU","year":2026,"partial_year":true,"peak_load_mw":79007.64,"solar_mw":null,"wind_mw":null,"neg_hours":475,"mean_price":114.956,"spread_2h":151.08,"spread_4h":133.624,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"NL","year":2023,"partial_year":false,"peak_load_mw":18907.752,"solar_mw":null,"wind_mw":null,"neg_hours":316,"mean_price":95.813,"spread_2h":100.353,"spread_4h":87.327,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"NL","year":2024,"partial_year":false,"peak_load_mw":19477.155,"solar_mw":null,"wind_mw":null,"neg_hours":458,"mean_price":77.281,"spread_2h":105.645,"spread_4h":90.586,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"NL","year":2025,"partial_year":false,"peak_load_mw":19555.58,"solar_mw":null,"wind_mw":null,"neg_hours":584,"mean_price":86.81,"spread_2h":115.173,"spread_4h":99.954,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"NL","year":2026,"partial_year":true,"peak_load_mw":20499.268,"solar_mw":null,"wind_mw":null,"neg_hours":406,"mean_price":115.553,"spread_2h":149.878,"spread_4h":132.59,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"BE","year":2023,"partial_year":false,"peak_load_mw":12597.39,"solar_mw":null,"wind_mw":null,"neg_hours":222,"mean_price":97.267,"spread_2h":84.661,"spread_4h":74.491,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"BE","year":2024,"partial_year":false,"peak_load_mw":13205.66,"solar_mw":null,"wind_mw":null,"neg_hours":404,"mean_price":70.315,"spread_2h":86.148,"spread_4h":75.402,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"BE","year":2025,"partial_year":false,"peak_load_mw":13031.413,"solar_mw":null,"wind_mw":null,"neg_hours":519,"mean_price":82.574,"spread_2h":104.061,"spread_4h":91.187,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"BE","year":2026,"partial_year":true,"peak_load_mw":13539.882,"solar_mw":null,"wind_mw":null,"neg_hours":307,"mean_price":115.012,"spread_2h":140.573,"spread_4h":124.736,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"PL","year":2023,"partial_year":false,"peak_load_mw":27105.73,"solar_mw":null,"wind_mw":null,"neg_hours":43,"mean_price":111.654,"spread_2h":66.032,"spread_4h":59.692,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"PL","year":2024,"partial_year":false,"peak_load_mw":28303.88,"solar_mw":null,"wind_mw":null,"neg_hours":197,"mean_price":96.26,"spread_2h":111.364,"spread_4h":94.643,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"PL","year":2025,"partial_year":false,"peak_load_mw":26049.291,"solar_mw":null,"wind_mw":null,"neg_hours":311,"mean_price":104.292,"spread_2h":130.025,"spread_4h":108.866,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null},{"zone":"PL","year":2026,"partial_year":true,"peak_load_mw":27603.793,"solar_mw":null,"wind_mw":null,"neg_hours":316,"mean_price":123.904,"spread_2h":168.89,"spread_4h":147.067,"bess_mw":null,"bess_mwh":null,"bess_pct_of_peak":null}];
+const REF = new Set(["DE_LU","NL","BE","PL"]);
+const years = [...new Set(DATA.map(d => d.year))].sort();
+const partial = new Set(DATA.filter(d => d.partial_year).map(d => d.year));
+const sel = document.getElementById('year');
+years.forEach(y => { const o = document.createElement('option'); o.value = y;
+  o.textContent = y + (partial.has(y) ? ' (YTD)' : ''); sel.appendChild(o); });
+sel.value = years[years.length - 1];
+
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const charts = {};
+
+function barChart(id, rows, key, scale, fmt) {
+  const labels = rows.map(r => r.zone.replace('_', ' '));
+  const vals = rows.map(r => r[key] == null ? null : r[key] * scale);
+  const colors = rows.map(r => REF.has(r.zone) ? css('--ref') : css('--nordic'));
+  if (charts[id]) charts[id].destroy();
+  charts[id] = new Chart(document.getElementById(id), {
+    type: 'bar',
+    data: { labels, datasets: [{ data: vals, backgroundColor: colors, borderRadius: 3 }] },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false },
+                 tooltip: { callbacks: { label: c => c.parsed.y == null ? 'n/a' : fmt(c.parsed.y) } } },
+      scales: { y: { beginAtZero: true, grid: { color: css('--line') }, ticks: { color: css('--muted') } },
+                x: { grid: { display: false }, ticks: { color: css('--muted'), maxRotation: 60 } } } }
+  });
+}
+
+function render() {
+  const y = Number(sel.value);
+  const rows = DATA.filter(d => d.year === y);
+  barChart('c_neg', rows, 'neg_hours', 1, v => Math.round(v) + ' h');
+  barChart('c_spread', rows, 'spread_4h', 1, v => v.toFixed(1) + ' EUR/MWh');
+  barChart('c_peak', rows, 'peak_load_mw', 0.001, v => v.toFixed(1) + ' GW');
+  const hasBess = rows.some(r => r.bess_pct_of_peak != null);
+  document.getElementById('bess_empty').style.display = hasBess ? 'none' : 'block';
+  document.getElementById('c_bess').parentElement.style.display = hasBess ? 'block' : 'none';
+  if (hasBess) barChart('c_bess', rows, 'bess_pct_of_peak', 1, v => v.toFixed(1) + ' %');
+  renderTable(rows);
+}
+
+function renderTable(rows) {
+  const cols = [['zone','Zone',v=>v.replace('_',' ')],['peak_load_mw','Peak load (MW)',v=>Math.round(v)],
+    ['solar_mw','Solar (MW)',v=>Math.round(v)],['wind_mw','Wind (MW)',v=>Math.round(v)],
+    ['neg_hours','Neg. hours',v=>Math.round(v)],['mean_price','Mean price',v=>v.toFixed(1)],
+    ['spread_2h','Spread 2h',v=>v.toFixed(1)],['spread_4h','Spread 4h',v=>v.toFixed(1)],
+    ['bess_mw','BESS (MW)',v=>Math.round(v)],['bess_mwh','BESS (MWh)',v=>Math.round(v)],
+    ['bess_pct_of_peak','BESS % of peak',v=>v.toFixed(1)]];
+  const t = document.getElementById('tbl');
+  t.innerHTML = '<tr>' + cols.map(c => '<th>' + c[1] + '</th>').join('') + '</tr>' +
+    rows.map(r => '<tr>' + cols.map(c => '<td>' + (r[c[0]] == null ? '–' : c[2](r[c[0]])) + '</td>').join('') + '</tr>').join('');
+}
+
+function trend() {
+  const zones = [...new Set(DATA.map(d => d.zone))];
+  const palette = ['#1f6feb','#e07a1f','#2da44e','#bf3989','#8250df','#cf222e','#0a7d8c','#9a6700','#57606a','#0550ae','#a40e26','#116329','#6e7781','#953800','#1b7c83','#7d4e57'];
+  const datasets = zones.map((z, i) => ({
+    label: z.replace('_',' '), borderColor: palette[i % palette.length], backgroundColor: palette[i % palette.length],
+    borderDash: REF.has(z) ? [5,4] : [], tension: .2, pointRadius: 3,
+    data: years.map(y => { const r = DATA.find(d => d.zone === z && d.year === y); return r && r.spread_4h != null ? r.spread_4h : null; })
+  }));
+  new Chart(document.getElementById('c_trend'), {
+    type: 'line', data: { labels: years.map(y => partial.has(y) ? y + ' YTD' : String(y)), datasets },
+    options: { responsive: true, maintainAspectRatio: false, spanGaps: true,
+      plugins: { legend: { position: 'bottom', labels: { color: css('--muted'), boxWidth: 12 } } },
+      scales: { y: { beginAtZero: true, grid: { color: css('--line') }, ticks: { color: css('--muted') } },
+                x: { grid: { display: false }, ticks: { color: css('--muted') } } } }
+  });
+}
+
+sel.addEventListener('change', render);
+render(); trend();
+</script>
+</body>
+</html>
