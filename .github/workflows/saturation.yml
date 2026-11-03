@@ -51,6 +51,17 @@ jobs:
           path: .entsoe_cache
           key: entsoe-cache-${{ github.run_id }}
 
+      # Mimer kan vara tillfälligt otillgängligt; sidan byggs ändå (FCR-avsnittet visar då senast hämtade data).
+      - name: Fetch FCR procurement statistics from Mimer
+        continue-on-error: true
+        run: |
+          pip install requests
+          python fetch_mimer_fcr.py --start 2024-02 --out data/saturation/se_fcr_monthly.csv
+
+      - name: Fetch aFRR and mFRR capacity markets from the SVK data portal
+        continue-on-error: true
+        run: python fetch_svk_api.py --out data/saturation/se_afrr_mfrr_monthly.csv
+
       - name: Build web page
         run: |
           mkdir -p viewer
@@ -60,7 +71,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/saturation/zone_year_metrics.csv data/saturation/bess_input.csv viewer/saturation.html
+          git add data/saturation viewer/saturation.html
           if git diff --cached --quiet; then
             echo "No changes."
           else
