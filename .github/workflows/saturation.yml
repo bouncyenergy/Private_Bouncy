@@ -5,8 +5,8 @@ on:
     - cron: "0 7 * * 1"   # every Monday 07:00 UTC (after the arbitrage workflow)
   workflow_dispatch:       # manual run from the Actions tab
     inputs:
-      with_capacity:
-        description: "Include installed solar/wind (much slower)"
+      gen_proxy:
+        description: "Estimate wind/solar from peak output where ENTSO-E has no installed capacity (slower)"
         type: boolean
         default: false
 
@@ -42,7 +42,7 @@ jobs:
       - name: Fetch ENTSO-E data and compute metrics
         env:
           ENTSOE_TOKEN: ${{ secrets.ENTSOE_API_KEY }}
-        run: python entso_bess_context.py --out data/saturation --years 2023 2024 2025 2026 --workers 4 ${{ inputs.with_capacity && '--gen-proxy' || '--skip-capacity' }}
+        run: python entso_bess_context.py --out data/saturation --years 2023 2024 2025 2026 --workers 4 ${{ inputs.gen_proxy && '--gen-proxy' || '' }}
 
       - name: Save ENTSO-E cache
         if: always()
