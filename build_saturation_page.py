@@ -105,6 +105,14 @@ TEMPLATE = r"""<!DOCTYPE html>
       <div class="chart-wrap"><canvas id="c_peak"></canvas></div>
     </div>
     <div class="card">
+      <h2>Installed wind and solar as % of peak load</h2>
+      <p>Installed capacity relative to the zone's highest hourly load. Above 100 % means wind and solar together could
+         exceed the highest demand, a rough measure of how much flexibility the system needs.</p>
+      <div class="chart-wrap" id="vre_wrap"><canvas id="c_vre"></canvas></div>
+      <div class="empty" id="vre_empty" style="display:none">No installed wind and solar capacity in the data for the selected zones and year.
+        ENTSO-E may not report it for every zone; run the workflow manually with the proxy option to estimate it from peak output.</div>
+    </div>
+    <div class="card">
       <h2>BESS as % of peak load</h2>
       <p>Solid bars: installed front-of-the-meter battery power. Outlined bars: batteries prequalified for reserve
          markets (a proxy; where available it can be higher or lower than installed).</p>
@@ -285,6 +293,42 @@ function bessChart(rows) {
   });
 }
 
+function bessReason(y) {
+  const shown = d => d.bess_pct_of_peak != null || d.prequal_pct_of_peak != null;
+  const raw = DATA.filter(d => d.bess_mw != null || d.prequal_bess_mw != null);
+  if (!raw.length)
+    return 'No BESS values were found in the data. Check that data/saturation/bess_input.csv has MW filled in, then re-run the workflow.';
+  if (!DATA.some(shown))
+    return 'BESS values exist, but there is no peak load for those zones and years, so the percentage cannot be computed. Check the ENTSO-E load fetch for them.';
+  const yrs = [...new Set(DATA.filter(d => selected.has(d.zone) && shown(d)).map(d => d.year))].sort();
+  if (!yrs.length)
+    return 'No BESS data for the selected zones in any year. Data exists for: ' +
+      [...new Set(DATA.filter(shown).map(d => d.zone.replace('_', ' ')))].join(', ') + '.';
+  return 'No BESS data for ' + y + ' in the selected zones. Years with data for these zones: ' + yrs.join(', ') + '.';
+}
+
+function vreChart(rows) {
+  const id = 'c_vre';
+  if (charts[id]) charts[id].destroy();
+  const has = rows.some(r => r.solar_pct_of_peak != null || r.wind_pct_of_peak != null);
+  document.getElementById('vre_empty').style.display = has ? 'none' : 'block';
+  document.getElementById('vre_wrap').style.display = has ? 'block' : 'none';
+  if (!has) return;
+  const pick = (r, k) => r[k] == null ? null : r[k];
+  charts[id] = new Chart(document.getElementById(id), {
+    type: 'bar',
+    data: { labels: rows.map(r => label(r.zone)), datasets: [
+      { label: 'Wind', data: rows.map(r => pick(r, 'wind_pct_of_peak')), backgroundColor: '#0a7d8c', stack: 's' },
+      { label: 'Solar', data: rows.map(r => pick(r, 'solar_pct_of_peak')), backgroundColor: '#e0a31f', stack: 's' } ] },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom', labels: { color: css('--muted'), boxWidth: 12 } },
+                 tooltip: { callbacks: { label: c => c.parsed.y == null ? c.dataset.label + ': n/a' :
+                   c.dataset.label + ': ' + c.parsed.y.toFixed(0) + ' % of peak' + (rows[c.dataIndex].capacity_is_proxy ? ' (estimated from peak output)' : '') } } },
+      scales: { y: { stacked: true, beginAtZero: true, grid: { color: css('--line') }, ticks: { color: css('--muted'), callback: v => v + '%' } },
+                x: { stacked: true, grid: { display: false }, ticks: { color: css('--muted'), maxRotation: 60 } } } }
+  });
+}
+
 function render() {
   const y = Number(sel.value);
   const rows = ZONES.filter(z => selected.has(z))
@@ -292,7 +336,9 @@ function render() {
   barChart('c_neg', rows, 'neg_hours', 1, v => Math.round(v) + ' h');
   barChart('c_spread', rows, 'spread_4h', 1, v => v.toFixed(1) + ' EUR/MWh');
   barChart('c_peak', rows, 'peak_load_mw', 0.001, v => v.toFixed(1) + ' GW');
+  vreChart(rows);
   const hasBess = rows.some(r => r.bess_pct_of_peak != null || r.prequal_pct_of_peak != null);
+  if (!hasBess) document.getElementById('bess_empty').textContent = bessReason(y);
   document.getElementById('bess_empty').style.display = hasBess ? 'none' : 'block';
   document.getElementById('bess_wrap').style.display = hasBess ? 'block' : 'none';
   if (hasBess) bessChart(rows);
@@ -306,7 +352,8 @@ function renderTable(rows) {
     ['neg_hours','Neg. hours',v=>Math.round(v)],['mean_price','Mean price',v=>v.toFixed(1)],
     ['spread_2h','Spread 2h',v=>v.toFixed(1)],['spread_4h','Spread 4h',v=>v.toFixed(1)],
     ['bess_mw','BESS (MW)',v=>Math.round(v)],['bess_mwh','BESS (MWh)',v=>Math.round(v)],
-    ['bess_pct_of_peak','BESS % of peak',v=>v.toFixed(1)],['prequal_bess_mw','Prequal. BESS (MW)',v=>Math.round(v)],
+    ['bess_pct_of_peak','BESS % of peak',v=>v.toFixed(1)],['vre_pct_of_peak','Wind+solar % of peak',v=>Math.round(v)],['bess_pct_of_vre','BESS % of wind+solar',v=>v.toFixed(1)],
+    ['prequal_bess_mw','Prequal. BESS (MW)',v=>Math.round(v)],
     ['prequal_pct_of_peak','Prequal. % of peak',v=>v.toFixed(1)],['bess_note','BESS source / note',v=>v,'note']];
   const t = document.getElementById('tbl');
   t.innerHTML = '<tr>' + cols.map(c => '<th>' + c[1] + '</th>').join('') + '</tr>' +
@@ -462,6 +509,40 @@ syncChips(); render(); preqSection(); fcrSection(); amSection();
 """
 
 
+BESS_COLS = ["bess_mw", "bess_mwh", "bess_pct_of_peak", "bess_note", "note", "prequal_bess_mw",
+             "prequal_basis", "prequal_pct_of_peak", "bess_duration_h", "bess_pct_of_solar_wind"]
+
+
+def merge_bess_input(df: pd.DataFrame, path: str) -> pd.DataFrame:
+    """Läser BESS-filen direkt när sidan byggs och räknar andel av topplast. Det gör att en ändring i
+    bess_input.csv slår igenom vid nästa bygge, även om ENTSO-E-datat är från en tidigare körning."""
+    f = Path(path)
+    if not f.exists():
+        print(f"Obs: {path} saknas - BESS-diagrammet blir tomt.")
+        return df
+    b = pd.read_csv(f)
+    for c in ("year", "bess_mw", "bess_mwh", "prequal_bess_mw"):
+        if c in b.columns:
+            b[c] = pd.to_numeric(b[c], errors="coerce")
+    df = df.drop(columns=[c for c in BESS_COLS if c in df.columns])
+    df["year"] = pd.to_numeric(df["year"], errors="coerce")
+    cols = ["zone", "year"] + [c for c in ("bess_mw", "bess_mwh", "note", "prequal_bess_mw", "prequal_basis")
+                               if c in b.columns]
+    df = df.merge(b[cols].drop_duplicates(["zone", "year"], keep="last"), on=["zone", "year"], how="left")
+    if "note" in df.columns:
+        df = df.rename(columns={"note": "bess_note"})
+    for c in ("bess_mw", "bess_mwh", "prequal_bess_mw"):
+        if c not in df.columns:
+            df[c] = None
+    peak = df["peak_load_mw"]
+    df["bess_pct_of_peak"] = 100 * df["bess_mw"] / peak
+    df["prequal_pct_of_peak"] = 100 * df["prequal_bess_mw"] / peak
+    n_inst, n_pre = int(df["bess_mw"].notna().sum()), int(df["prequal_bess_mw"].notna().sum())
+    n_ok = int((df["bess_pct_of_peak"].notna() | df["prequal_pct_of_peak"].notna()).sum())
+    print(f"BESS-fil: {n_inst} rader med installerat, {n_pre} med förkvalificerat; {n_ok} rader har topplast och kan visas.")
+    return df
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--csv", default="data/saturation/zone_year_metrics.csv")
@@ -469,6 +550,7 @@ def main() -> None:
     ap.add_argument("--prequal-tech", default="data/saturation/se_prequalified_by_technology.csv")
     ap.add_argument("--prequal-zone", default="data/saturation/se_prequalified_by_zone.csv")
     ap.add_argument("--fcr", default="data/saturation/se_fcr_monthly.csv")
+    ap.add_argument("--bess-input", default="data/saturation/bess_input.csv")
     ap.add_argument("--afrr-mfrr", default="data/saturation/se_afrr_mfrr_monthly.csv")
     args = ap.parse_args()
 
@@ -478,10 +560,28 @@ def main() -> None:
     else:
         df["partial_year"] = False
 
+    df = merge_bess_input(df, args.bess_input)
+
+    for c in ("solar_mw", "wind_mw"):
+        df[c] = pd.to_numeric(df[c], errors="coerce") if c in df.columns else float("nan")
+    if "capacity_is_proxy" not in df.columns:
+        df["capacity_is_proxy"] = False
+    df["capacity_is_proxy"] = df["capacity_is_proxy"].astype(str).str.lower().eq("true")
+    if "bess_mw" not in df.columns:               # BESS-filen saknas: kolumnen måste ändå finnas
+        df["bess_mw"] = float("nan")
+    df["bess_mw"] = pd.to_numeric(df["bess_mw"], errors="coerce")
+    vre = df["solar_mw"] + df["wind_mw"]          # NaN om någon av delarna saknas (undviker halv summa)
+    df["solar_pct_of_peak"] = 100 * df["solar_mw"] / df["peak_load_mw"]
+    df["wind_pct_of_peak"] = 100 * df["wind_mw"] / df["peak_load_mw"]
+    df["vre_pct_of_peak"] = 100 * vre / df["peak_load_mw"]
+    df["bess_pct_of_vre"] = 100 * df["bess_mw"] / vre
+    print(f"Sol/vind: {int(vre.notna().sum())} av {len(df)} rader har både sol och vind.")
+
     keep = [
         "zone", "year", "partial_year", "peak_load_mw", "solar_mw", "wind_mw", "neg_hours", "mean_price",
         "spread_2h", "spread_4h", "bess_mw", "bess_mwh", "bess_pct_of_peak", "bess_note",
         "prequal_bess_mw", "prequal_pct_of_peak",
+        "solar_pct_of_peak", "wind_pct_of_peak", "vre_pct_of_peak", "bess_pct_of_vre", "capacity_is_proxy",
     ]
     for c in keep:
         if c not in df.columns:
