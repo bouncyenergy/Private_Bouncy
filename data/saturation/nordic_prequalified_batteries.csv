@@ -1,0 +1,9 @@
+product,SE,DK,NO,FI,note
+FFR upp,297.2,10.0,8.1,102.0,
+FCR-N,130.0,8.0,0.4,106.0,SE: Svenska kraftnäts tabell för 1 jan 2025 (rapportens text för SE är otydlig)
+FCR-D upp,608.3,18.1,1.0,119.0,
+FCR-D ned,568.0,18.1,0.0,116.0,
+aFRR upp,0.0,5.3,0.0,40.0,
+aFRR ned,0.0,5.3,0.0,40.0,
+mFRR upp (EAM),117.5,0.0,0.0,,FI: förkvalificering krävs inte för mFRR
+mFRR ned (EAM),118.5,0.0,0.0,,FI: förkvalificering krävs inte för mFRR
