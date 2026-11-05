@@ -122,6 +122,25 @@ TEMPLATE = r"""<!DOCTYPE html>
     </div>
   </div>
 
+  <div id="vrep_section" style="display:none">
+    <h2 style="margin:28px 0 4px">Weather-dependent power relative to demand</h2>
+    <p class="lead" style="margin-bottom:12px">Wind and solar from ENTSO-E actual generation, relative to actual load, per bidding zone. It works also where installed capacity is not reported. Year and zones follow the controls above.</p>
+    <div class="grid">
+      <div class="card"><h2>Share of annual demand (%)</h2><p>Wind and solar energy divided by load energy.</p><div class="chart-wrap"><canvas id="c_vp_energy"></canvas></div></div>
+      <div class="card"><h2>Peak-hour penetration (%)</h2><p>99th percentile of hourly wind and solar divided by load. Above 100 % means the zone regularly has surplus to export or store.</p><div class="chart-wrap"><canvas id="c_vp_p99"></canvas></div></div>
+      <div class="card"><h2>Daily residual-load swing (% of peak load)</h2><p>Average of the highest minus lowest residual load each day, divided by peak load: how much flexibility the zone needs every day.</p><div class="chart-wrap"><canvas id="c_vp_swing"></canvas></div></div>
+      <div class="card"><h2>Fast ramps (% of peak load per 3 h)</h2><p>99th percentile of 3-hour changes in residual load divided by peak load.</p><div class="chart-wrap"><canvas id="c_vp_ramp"></canvas></div></div>
+    </div>
+    <div class="card tablewrap" style="margin-top:16px"><h2>Penetration data</h2><p id="vp_note"></p><table id="tbl_vp"></table></div>
+    <div class="card tablewrap" style="margin-top:16px"><h2>Price coupling with Sweden</h2><p id="vc_note"></p><table id="tbl_vc"></table></div>
+  </div>
+
+  <div id="npq_section" style="display:none">
+    <h2 style="margin:28px 0 4px">Prequalified batteries in the Nordic reserve markets</h2>
+    <p class="lead" style="margin-bottom:12px">MW per country on 1 January 2025 (Nordic TSOs, April 2025). The TSOs report by country, not by bidding zone. A battery can be prequalified for several products, so the rows cannot be added together.</p>
+    <div class="card tablewrap"><table id="tbl_npq"></table></div>
+  </div>
+
   <div id="preq_section" style="display:none">
     <h2 style="margin:28px 0 4px">Sweden: batteries in the reserve markets</h2>
     <p class="lead" style="margin-bottom:12px">Volumes prequalified by Svenska kraftnät, national, 1 January each year and 1 October 2026.
@@ -203,6 +222,9 @@ const PREQ = /*PREQ*/;
 const PREQZ = /*PREQZ*/;
 const FCR = /*FCR*/;
 const AM = /*AM*/;
+const VREP = /*VREP*/;
+const COUPL = /*COUPL*/;
+const NPQ = /*NPQ*/;
 
 const ORDER = ["SE_1","SE_2","SE_3","SE_4","NO_1","NO_3","NO_4","FI","DK_1","DK_2","DE_LU","PL","LT","EE","LV","NO_2","NO_5","NL","BE"];
 const SE = ["SE_1","SE_2","SE_3","SE_4"];
@@ -343,6 +365,7 @@ function render() {
   document.getElementById('bess_wrap').style.display = hasBess ? 'block' : 'none';
   if (hasBess) bessChart(rows);
   renderTable(rows);
+  vrepSection(y);
   trend();
 }
 
@@ -501,8 +524,56 @@ function amSection() {
   });
 }
 
+// ---- Weather-dependent power relative to demand (ENTSO-E) ----
+function vrepRows(y) {
+  return ZONES.filter(z => selected.has(z)).map(z => VREP.find(d => d.zone === z && d.year === y) || { zone: z, year: y });
+}
+function vrepSection(y) {
+  const sec = document.getElementById('vrep_section');
+  if (!VREP.length) return;
+  sec.style.display = 'block';
+  const rows = vrepRows(y);
+  const labels = rows.map(r => label(r.zone));
+  if (charts.c_vp_energy) charts.c_vp_energy.destroy();
+  charts.c_vp_energy = new Chart(document.getElementById('c_vp_energy'), {
+    type: 'bar',
+    data: { labels, datasets: [
+      { label: 'Wind', data: rows.map(r => r.wind_share_pct == null ? null : r.wind_share_pct), backgroundColor: '#0a7d8c', stack: 's' },
+      { label: 'Solar', data: rows.map(r => r.solar_share_pct == null ? null : r.solar_share_pct), backgroundColor: '#e0a31f', stack: 's' } ] },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom', labels: { color: css('--muted'), boxWidth: 12 } },
+                 tooltip: { callbacks: { label: c => c.parsed.y == null ? c.dataset.label + ': n/a' : c.dataset.label + ': ' + c.parsed.y.toFixed(1) + ' %' } } },
+      scales: { y: { stacked: true, beginAtZero: true, grid: { color: css('--line') }, ticks: { color: css('--muted'), callback: v => v + '%' } },
+                x: { stacked: true, grid: { display: false }, ticks: { color: css('--muted'), maxRotation: 60 } } } }
+  });
+  barChart('c_vp_p99', rows, 'vre_p99_pct', 1, v => v.toFixed(0) + ' %');
+  barChart('c_vp_swing', rows, 'resid_swing_pct_of_peak', 1, v => v.toFixed(0) + ' % of peak load');
+  barChart('c_vp_ramp', rows, 'ramp3h_p99_pct_of_peak', 1, v => v.toFixed(0) + ' % of peak load');
+
+  const cols = [['zone', 'Zone', (v, r) => label(v) + ((r.has_wind === false || r.has_solar === false) ? ' *' : '')],
+    ['wind_share_pct', 'Wind % of demand', v => v.toFixed(1)], ['solar_share_pct', 'Solar % of demand', v => v.toFixed(1)], ['vre_share_pct', 'Wind+solar %', v => v.toFixed(1)],
+    ['vre_p99_pct', 'p99 hourly %', v => v.toFixed(0)], ['hours_vre_ge50_pct', 'Hours ≥50 % of load', v => v.toFixed(0) + ' %'], ['hours_vre_ge100_pct', 'Hours ≥100 % of load', v => v.toFixed(1) + ' %'],
+    ['vre_peak_to_load_peak_pct', 'VRE peak ÷ load peak %', v => v.toFixed(0)], ['resid_min_pct_of_peak', 'Min residual % of peak', v => v.toFixed(0)],
+    ['resid_swing_pct_of_peak', 'Daily swing % of peak', v => v.toFixed(0)], ['ramp3h_p99_pct_of_peak', '3 h ramp % of peak', v => v.toFixed(0)]];
+  document.getElementById('tbl_vp').innerHTML = '<tr>' + cols.map(c => '<th>' + c[1] + '</th>').join('') + '</tr>' +
+    rows.map(r => '<tr>' + cols.map(c => '<td>' + (r[c[0]] == null ? '–' : c[2](r[c[0]], r)) + '</td>').join('') + '</tr>').join('');
+  document.getElementById('vp_note').textContent = '* The zone has no ENTSO-E wind or solar series, so its share is a lower bound. Generation covers what is reported to ENTSO-E and can miss small-scale solar behind the meter.';
+
+  const sel2 = COUPL.filter(c => c.year === y && (selected.has(c.zone) || selected.has(c.se_zone)));
+  document.getElementById('vc_note').textContent = COUPL.length ? 'Share of hours with exactly the same day-ahead price. A low share means the cable is often congested and the zones price separately.' : '';
+  document.getElementById('tbl_vc').innerHTML = !COUPL.length ? '' : '<tr><th>Pair</th><th>Same price (% of hours)</th><th>Mean absolute price difference (EUR/MWh)</th></tr>' +
+    sel2.map(c => '<tr><td>' + label(c.zone) + ' ↔ ' + label(c.se_zone) + '</td><td>' + c.equal_price_pct.toFixed(0) + ' %</td><td>' + c.mean_abs_diff.toFixed(1) + '</td></tr>').join('');
+}
+function npqSection() {
+  if (!NPQ.length) return;
+  document.getElementById('npq_section').style.display = 'block';
+  const f = v => v == null ? '–' : (Math.round(v * 10) / 10).toString();
+  document.getElementById('tbl_npq').innerHTML = '<tr><th>Product</th><th>Sweden</th><th>Denmark</th><th>Norway</th><th>Finland</th></tr>' +
+    NPQ.map(r => '<tr><td>' + r.product + '</td><td>' + f(r.SE) + '</td><td>' + f(r.DK) + '</td><td>' + f(r.NO) + '</td><td>' + f(r.FI) + '</td></tr>').join('');
+}
+
 sel.addEventListener('change', render);
-syncChips(); render(); preqSection(); fcrSection(); amSection();
+syncChips(); render(); preqSection(); fcrSection(); amSection(); npqSection();
 </script>
 </body>
 </html>
@@ -551,6 +622,9 @@ def main() -> None:
     ap.add_argument("--prequal-zone", default="data/saturation/se_prequalified_by_zone.csv")
     ap.add_argument("--fcr", default="data/saturation/se_fcr_monthly.csv")
     ap.add_argument("--bess-input", default="data/saturation/bess_input.csv")
+    ap.add_argument("--vre", default="data/saturation/vre_penetration.csv")
+    ap.add_argument("--coupling", default="data/saturation/price_coupling.csv")
+    ap.add_argument("--nordic-pq", default="data/saturation/nordic_prequalified_batteries.csv")
     ap.add_argument("--afrr-mfrr", default="data/saturation/se_afrr_mfrr_monthly.csv")
     args = ap.parse_args()
 
@@ -603,9 +677,15 @@ def main() -> None:
     am = load_json(args.afrr_mfrr, ["month", "product", "price_eur_mw", "vol_total_mw",
                                     "vol_SE1", "vol_SE2", "vol_SE3", "vol_SE4"])
 
+    vrep = load_json(args.vre, ["zone", "year", "has_wind", "has_solar", "wind_share_pct", "solar_share_pct", "vre_share_pct", "vre_p99_pct",
+                                "hours_vre_ge50_pct", "hours_vre_ge100_pct", "vre_peak_to_load_peak_pct", "resid_min_pct_of_peak",
+                                "resid_swing_pct_of_peak", "ramp3h_p99_pct_of_peak"])
+    coupl = load_json(args.coupling, ["zone", "se_zone", "year", "equal_price_pct", "mean_abs_diff"])
+    npq = load_json(args.nordic_pq, ["product", "SE", "DK", "NO", "FI"])
+
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    html = TEMPLATE.replace("/*DATA*/", payload).replace("/*PREQZ*/", preqz).replace("/*FCR*/", fcr).replace("/*AM*/", am).replace("/*PREQ*/", preq)
+    html = TEMPLATE.replace("/*DATA*/", payload).replace("/*PREQZ*/", preqz).replace("/*FCR*/", fcr).replace("/*AM*/", am).replace("/*VREP*/", vrep).replace("/*COUPL*/", coupl).replace("/*NPQ*/", npq).replace("/*PREQ*/", preq)
     out.write_text(html, encoding="utf-8")
     print(f"Skrev {out} ({len(df)} rader)")
 
