@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hours per month by price level | Bouncy Energy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1c2330; --muted: #5d6675; --card: #f5f7fa; --line: #dde2ea; --accent: #1f6feb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #11151c; --fg: #e6e9ef; --muted: #98a1b0; --card: #1a2029; --line: #2c3441; --accent: #5b9bff; }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 400 15px/1.5 "Inter", "Segoe UI", system-ui, sans-serif; }
+  main { max-width: 1080px; margin: 0 auto; padding: 18px 20px 48px; }
+  h1 { font: 700 clamp(24px, 4vw, 34px)/1.15 "Space Grotesk", "Segoe UI", system-ui, sans-serif; margin: 6px 0 8px; letter-spacing: -0.01em; }
+  h2 { font: 700 18px/1.3 "Space Grotesk", "Segoe UI", system-ui, sans-serif; margin: 0 0 4px; }
+  .lead { color: var(--muted); max-width: 70ch; margin: 0 0 18px; }
+  .panel, .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 16px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 8px 0; }
+  .label { color: var(--muted); font-size: 13px; width: 78px; flex: none; }
+  .unit { color: var(--muted); font-size: 13px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { border: 0; background: transparent; color: var(--fg); font: inherit; font-size: 14px; padding: 6px 12px; cursor: pointer; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button.on { background: var(--accent); color: #fff; }
+  .chip, .pre { border: 1px solid var(--line); background: transparent; color: var(--fg); font: inherit; font-size: 13px; padding: 4px 11px; border-radius: 999px; cursor: pointer; }
+  .chip.on { background: var(--c, var(--accent)); border-color: var(--c, var(--accent)); color: #fff; }
+  .pre:hover, .chip:hover { border-color: var(--accent); }
+  input[type=range] { flex: 1 1 240px; min-width: 160px; accent-color: var(--accent); }
+  input[type=number] { width: 84px; font: inherit; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
+  .note { color: var(--muted); font-size: 13px; margin: 0 0 8px; min-height: 1.2em; }
+  .chartbox { position: relative; height: 380px; }
+  .tablewrap { overflow-x: auto; max-height: 520px; overflow-y: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+  th, td { padding: 5px 9px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; position: sticky; left: 0; background: var(--card); }
+  thead th { position: sticky; top: 0; background: var(--card); font-weight: 500; color: var(--muted); }
+  footer { color: var(--muted); font-size: 12.5px; margin-top: 18px; }
+</style>
+</head>
+<body>
+<nav class="viewnav" aria-label="Switch view"><style>.viewnav{display:flex;flex-wrap:wrap;gap:8px;max-width:1080px;margin:0 auto;padding:14px 20px 0;font:500 14px/1 system-ui,"Segoe UI",sans-serif}.viewnav a{padding:8px 14px;border:1px solid rgba(128,128,128,.45);border-radius:999px;color:inherit;text-decoration:none}.viewnav a:hover{border-color:currentColor}.viewnav a[aria-current=page]{background:rgba(128,128,128,.2);font-weight:700}</style><a href="arbitrage.html">Arbitrage depth</a><a href="saturation.html">Market saturation</a><a href="price_hours.html" aria-current="page">Price hours</a></nav>
+<main>
+  <h1>Hours per month by price level</h1>
+  <p class="lead">How many hours each month had a day-ahead price below, above or between the levels you set. Hourly prices in EUR/MWh from ENTSO-E, grouped by month in Swedish local time.</p>
+
+  <div class="panel">
+    <div class="row"><span class="label">Count hours</span>
+      <div class="seg" id="mode">
+        <button data-v="below" class="on">Price below</button>
+        <button data-v="above">Price at or above</button>
+        <button data-v="between">Between</button>
+      </div>
+    </div>
+    <div class="row"><span class="label" id="labA">Below</span>
+      <input type="range" id="sA" aria-label="Price level"><input type="number" id="nA" step="1" aria-label="Price level in EUR/MWh"><span class="unit">EUR/MWh</span>
+    </div>
+    <div class="row" id="rowB" hidden><span class="label">Up to</span>
+      <input type="range" id="sB" aria-label="Upper price level"><input type="number" id="nB" step="1" aria-label="Upper price level in EUR/MWh"><span class="unit">EUR/MWh (not included)</span>
+    </div>
+    <div class="row"><span class="label">Presets</span><div class="row" id="presets" style="margin:0"></div></div>
+    <div class="row"><span class="label">Show</span>
+      <div class="seg" id="unit">
+        <button data-v="hours" class="on">Hours</button>
+        <button data-v="pct">% of the month's hours</button>
+      </div>
+    </div>
+    <div class="row"><span class="label">Zones</span><div class="row" id="zones" style="margin:0"></div></div>
+  </div>
+
+  <div class="card">
+    <h2 id="title">Loading</h2>
+    <p class="note" id="note"></p>
+    <div class="chartbox"><canvas id="chart"></canvas></div>
+  </div>
+
+  <div class="card">
+    <h2>Month by month</h2>
+    <p class="note">Same numbers as the chart, newest month first. Darker cells are higher values.</p>
+    <div class="tablewrap"><table id="tbl"></table></div>
+  </div>
+
+  <footer>Source: ENTSO-E Transparency Platform, day-ahead prices. A price of exactly the level counts as "at or above". Levels are whole EUR/MWh between -150 and 400.</footer>
+</main>
+
+<script>
+(function () {
+  var DATA = /*EMBED_JSON*/null;
+  function $(id) { return document.getElementById(id); }
+  if (!DATA) { $('title').textContent = 'No data embedded yet. Run build_price_hours.py.'; return; }
+
+  var LO = DATA.lo, HI = DATA.hi;
+  var ZONES = DATA.order;
+  var MONTHS = DATA.months;
+  var COL = {
+    SE1: '#7fb3e6', SE2: '#4a90d9', SE3: '#1f6feb', SE4: '#0b3d91',
+    NO1: '#c9a0e8', NO2: '#a56cd6', NO3: '#8240c0', NO4: '#5d2a94', NO5: '#d98cc4',
+    DK1: '#5cc9a1', DK2: '#1a9e75', FI: '#f0a030', DE: '#8a94a3'
+  };
+
+  // Prefix sums per zone and month: P[z][m][k] = hours in bins 0..k
+  var P = {};
+  ZONES.forEach(function (z) {
+    P[z] = {};
+    MONTHS.forEach(function (m) {
+      var c = DATA.zones[z][m];
+      if (!c) return;
+      var s = 0, p = new Array(c.length);
+      for (var i = 0; i < c.length; i++) { s += c[i]; p[i] = s; }
+      P[z][m] = p;
+    });
+  });
+
+  var state = {
+    mode: 'below', unit: 'hours', a: 50, b: 150,
+    zones: ZONES.filter(function (z) { return z === 'SE3' || z === 'SE4'; })
+  };
+  if (!state.zones.length) state.zones = [ZONES[0]];
+
+  function clamp(x) {
+    x = Math.round(Number(x));
+    if (isNaN(x)) x = 0;
+    return Math.max(LO, Math.min(HI, x));
+  }
+  function lessThan(p, x) { return p[x - LO]; }   // hours with price < x
+
+  function value(z, m) {
+    var p = P[z][m];
+    if (!p) return null;
+    var n = p[p.length - 1], v;
+    if (state.mode === 'below') v = lessThan(p, state.a);
+    else if (state.mode === 'above') v = n - lessThan(p, state.a);
+    else v = lessThan(p, Math.max(state.a, state.b)) - lessThan(p, Math.min(state.a, state.b));
+    if (state.unit === 'pct') return n ? v * 100 / n : null;
+    return v;
+  }
+  function fmt(v) {
+    if (v === null || v === undefined) return '';
+    return state.unit === 'pct' ? v.toFixed(1) + ' %' : String(Math.round(v)) + ' h';
+  }
+  function describe() {
+    var head = state.unit === 'pct' ? 'Share of hours' : 'Hours';
+    var lo = Math.min(state.a, state.b), hi = Math.max(state.a, state.b);
+    if (state.mode === 'below') return head + ' per month with price below ' + state.a + ' EUR/MWh';
+    if (state.mode === 'above') return head + ' per month with price at or above ' + state.a + ' EUR/MWh';
+    return head + ' per month with price from ' + lo + ' up to ' + hi + ' EUR/MWh';
+  }
+
+  var chart = null;
+  function drawChart() {
+    var css = getComputedStyle(document.documentElement);
+    var muted = css.getPropertyValue('--muted').trim();
+    var line = css.getPropertyValue('--line').trim();
+    var single = state.zones.length === 1;
+    var ds = state.zones.map(function (z) {
+      return {
+        label: z,
+        data: MONTHS.map(function (m) { return value(z, m); }),
+        borderColor: COL[z] || '#888', backgroundColor: COL[z] || '#888',
+        borderWidth: 2, pointRadius: 2, tension: 0
+      };
+    });
+    if (chart) chart.destroy();
+    chart = new Chart($('chart'), {
+      type: single ? 'bar' : 'line',
+      data: { labels: MONTHS, datasets: ds },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: !single, labels: { color: muted } },
+          tooltip: { callbacks: { label: function (c) { return c.dataset.label + ': ' + fmt(c.parsed.y); } } }
+        },
+        scales: {
+          x: { ticks: { color: muted, maxRotation: 60, autoSkip: true }, grid: { color: line } },
+          y: {
+            beginAtZero: true, max: state.unit === 'pct' ? 100 : undefined,
+            title: { display: true, text: state.unit === 'pct' ? '% of hours in the month' : 'Hours in the month', color: muted },
+            ticks: { color: muted }, grid: { color: line }
+          }
+        }
+      }
+    });
+  }
+
+  function drawTable() {
+    var t = $('tbl');
+    t.innerHTML = '';
+    var months = MONTHS.slice().reverse();
+    var vals = {}, mx = 0;
+    state.zones.forEach(function (z) {
+      months.forEach(function (m) {
+        var v = value(z, m);
+        vals[z + m] = v;
+        if (v !== null && v > mx) mx = v;
+      });
+    });
+    var thead = document.createElement('thead');
+    var hr = document.createElement('tr');
+    ['Month'].concat(state.zones).forEach(function (h) {
+      var th = document.createElement('th'); th.textContent = h; hr.appendChild(th);
+    });
+    thead.appendChild(hr); t.appendChild(thead);
+    var tb = document.createElement('tbody');
+    months.forEach(function (m) {
+      var tr = document.createElement('tr');
+      var td0 = document.createElement('td'); td0.textContent = m; tr.appendChild(td0);
+      state.zones.forEach(function (z) {
+        var td = document.createElement('td');
+        var v = vals[z + m];
+        td.textContent = fmt(v);
+        if (v !== null && mx > 0) td.style.background = 'rgba(31,111,235,' + (0.04 + 0.4 * v / mx).toFixed(2) + ')';
+        tr.appendChild(td);
+      });
+      tb.appendChild(tr);
+    });
+    t.appendChild(tb);
+  }
+
+  function updateNote() {
+    var last = MONTHS[MONTHS.length - 1];
+    var p = P[state.zones[0]][last];
+    var note = '';
+    if (p) {
+      var parts = last.split('-');
+      var expected = new Date(Number(parts[0]), Number(parts[1]), 0).getDate() * 24;
+      var n = p[p.length - 1];
+      if (n < expected - 2) note = 'The latest month (' + last + ') has only ' + n + ' of about ' + expected + ' hours so far. Use the percentage view to compare it with full months.';
+    }
+    $('note').textContent = note;
+  }
+
+  function render() {
+    $('title').textContent = describe();
+    updateNote();
+    drawChart();
+    drawTable();
+  }
+
+  function syncControls() {
+    $('labA').textContent = state.mode === 'below' ? 'Below' : (state.mode === 'above' ? 'At or above' : 'From');
+    $('rowB').hidden = state.mode !== 'between';
+    $('sA').value = state.a; $('nA').value = state.a;
+    $('sB').value = state.b; $('nB').value = state.b;
+    Array.prototype.forEach.call($('mode').children, function (b) { b.className = b.getAttribute('data-v') === state.mode ? 'on' : ''; });
+    Array.prototype.forEach.call($('unit').children, function (b) { b.className = b.getAttribute('data-v') === state.unit ? 'on' : ''; });
+    Array.prototype.forEach.call($('zones').querySelectorAll('.chip'), function (b) {
+      b.className = 'chip' + (state.zones.indexOf(b.getAttribute('data-z')) >= 0 ? ' on' : '');
+    });
+  }
+  function update() { syncControls(); render(); }
+
+  // Controls
+  ['sA', 'sB'].forEach(function (id) { $(id).min = LO; $(id).max = HI; $(id).step = 1; });
+  $('sA').addEventListener('input', function () { state.a = clamp(this.value); update(); });
+  $('nA').addEventListener('input', function () { if (this.value === '') return; state.a = clamp(this.value); update(); });
+  $('sB').addEventListener('input', function () { state.b = clamp(this.value); update(); });
+  $('nB').addEventListener('input', function () { if (this.value === '') return; state.b = clamp(this.value); update(); });
+  Array.prototype.forEach.call($('mode').children, function (b) {
+    b.addEventListener('click', function () { state.mode = b.getAttribute('data-v'); update(); });
+  });
+  Array.prototype.forEach.call($('unit').children, function (b) {
+    b.addEventListener('click', function () { state.unit = b.getAttribute('data-v'); update(); });
+  });
+
+  [0, 25, 50, 100, 150, 200, 300].forEach(function (v) {
+    var b = document.createElement('button');
+    b.className = 'pre'; b.textContent = String(v);
+    b.addEventListener('click', function () { state.a = v; update(); });
+    $('presets').appendChild(b);
+  });
+
+  ZONES.forEach(function (z) {
+    var b = document.createElement('button');
+    b.className = 'chip'; b.textContent = z; b.setAttribute('data-z', z);
+    b.style.setProperty('--c', COL[z] || '#888');
+    b.addEventListener('click', function () {
+      var i = state.zones.indexOf(z);
+      if (i >= 0) { if (state.zones.length > 1) state.zones.splice(i, 1); }
+      else { state.zones.push(z); state.zones.sort(function (x, y) { return ZONES.indexOf(x) - ZONES.indexOf(y); }); }
+      update();
+    });
+    $('zones').appendChild(b);
+  });
+  [['SE1-4', ['SE1', 'SE2', 'SE3', 'SE4']], ['All', ZONES]].forEach(function (q) {
+    var b = document.createElement('button');
+    b.className = 'pre'; b.textContent = q[0];
+    b.addEventListener('click', function () {
+      state.zones = q[1].filter(function (z) { return ZONES.indexOf(z) >= 0; });
+      update();
+    });
+    $('zones').appendChild(b);
+  });
+
+  update();
+})();
+</script>
+</body>
+</html>
