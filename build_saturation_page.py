@@ -68,6 +68,7 @@ TEMPLATE = r"""<!DOCTYPE html>
 </style>
 </head>
 <body>
+<nav class="viewnav" aria-label="Switch view"><style>.viewnav{display:flex;flex-wrap:wrap;gap:8px;max-width:1080px;margin:0 auto;padding:14px 20px 0;font:500 14px/1 system-ui,"Segoe UI",sans-serif}.viewnav a{padding:8px 14px;border:1px solid rgba(128,128,128,.45);border-radius:999px;color:inherit;text-decoration:none}.viewnav a:hover{border-color:currentColor}.viewnav a[aria-current=page]{background:rgba(128,128,128,.2);font-weight:700}</style><a href="arbitrage.html">Arbitrage depth</a><a href="saturation.html" aria-current="page">Market saturation</a></nav>
 <main>
   <h1>BESS market saturation by bidding zone</h1>
   <p class="lead">Market conditions that drive battery revenues in each price area, and how much battery capacity
