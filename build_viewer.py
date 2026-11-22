@@ -33,6 +33,12 @@ def main() -> int:
     out.parent.mkdir(exist_ok=True)
     out.write_text(template.replace("/*EMBED_JSON*/null", payload), encoding="utf-8")
     print(f"Skrev {out} ({out.stat().st_size // 1024} KB)")
+    # Prisnivåsidan får aldrig stoppa arbitragesidan om något går fel.
+    try:
+        import build_price_hours
+        build_price_hours.main()
+    except Exception as exc:
+        print(f"Varning: price_hours.html byggdes inte: {exc}")
     return 0
 
 
